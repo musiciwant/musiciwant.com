@@ -1,7 +1,6 @@
 baseURL = "https://musiciwant.com/"
 languageCode = "en-us"
 title = "Music I Want — Sensory-Friendly Music Discovery"
-theme = ""
 enableRobotsTXT = true
 enableEmoji = false
 
