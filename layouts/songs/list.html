@@ -1,0 +1,21 @@
+{{ define "main" }}
+<h1>Song Library</h1>
+<p>Every song rated for sensory sensitivity. Find what fits you.</p>
+
+<div class="song-grid">
+  {{ range .Pages.ByDate.Reverse }}
+  <a href="{{ .Permalink }}" class="song-card" style="text-decoration:none">
+    <h3>{{ .Title }}</h3>
+    <div class="artist">{{ .Params.artist }}</div>
+    <div class="meta">
+      {{ if eq .Params.sensory_level "safe" }}<span class="badge badge-safe">Sensory Safe</span>{{ end }}
+      {{ if eq .Params.sensory_level "moderate" }}<span class="badge badge-moderate">Moderate</span>{{ end }}
+      {{ if eq .Params.sensory_level "intense" }}<span class="badge badge-intense">Intense</span>{{ end }}
+      {{ if .Params.bpm }}<span class="badge" style="background:rgba(255,255,255,0.05);color:var(--text-muted);border:1px solid var(--border)">{{ .Params.bpm }} BPM</span>{{ end }}
+      {{ range first 2 .Params.recommended_for }}<span class="rec-tag">{{ . }}</span>{{ end }}
+    </div>
+    <p style="font-size:0.9rem">{{ .Description }}</p>
+  </a>
+  {{ end }}
+</div>
+{{ end }}

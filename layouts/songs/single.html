@@ -1,0 +1,95 @@
+{{ define "main" }}
+<article>
+  <div class="song-header">
+    <h1>{{ .Title }}</h1>
+    <div class="artist">{{ .Params.artist }}</div>
+    <div class="album">{{ .Params.album }}{{ with .Params.year }} ({{ . }}){{ end }}</div>
+    <div class="meta">
+      {{ if eq .Params.sensory_level "safe" }}<span class="badge badge-safe">Sensory Safe</span>{{ end }}
+      {{ if eq .Params.sensory_level "moderate" }}<span class="badge badge-moderate">Moderate</span>{{ end }}
+      {{ if eq .Params.sensory_level "intense" }}<span class="badge badge-intense">Intense</span>{{ end }}
+      {{ if .Params.bpm }}<span class="badge" style="background:rgba(255,255,255,0.05);color:var(--text-muted);border:1px solid var(--border)">{{ .Params.bpm }} BPM</span>{{ end }}
+    </div>
+  </div>
+
+  <!-- Sensory Ratings -->
+  <div class="sensory-ratings">
+    <h2>Sensory Profile</h2>
+    <div class="rating-row">
+      <span class="rating-label">Dynamic Range</span>
+      <span class="rating-value">{{ .Params.dynamic_range }}/10</span>
+    </div>
+    <div class="rating-row">
+      <span class="rating-label">Sudden Changes</span>
+      <span class="rating-value {{ if eq .Params.sudden_changes "none" }}badge-safe{{ else if eq .Params.sudden_changes "mild" }}badge-moderate{{ else }}badge-intense{{ end }}">{{ .Params.sudden_changes }}</span>
+    </div>
+    <div class="rating-row">
+      <span class="rating-label">Texture</span>
+      <span class="rating-value">{{ .Params.texture }}</span>
+    </div>
+    <div class="rating-row">
+      <span class="rating-label">Predictability</span>
+      <span class="rating-value">{{ .Params.predictability }}</span>
+    </div>
+    <div class="rating-row">
+      <span class="rating-label">Vocal Style</span>
+      <span class="rating-value">{{ .Params.vocal_style }}</span>
+    </div>
+    {{ with .Params.sensory_notes }}
+    <div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid var(--border)">
+      <span class="rating-label">Notes:</span>
+      <p style="font-size:0.9rem;margin-top:0.25rem;color:var(--text)">{{ . }}</p>
+    </div>
+    {{ end }}
+  </div>
+
+  <!-- Recommended For -->
+  {{ with .Params.recommended_for }}
+  <div class="recommended-for">
+    {{ range . }}<span class="rec-tag">{{ . }}</span>{{ end }}
+  </div>
+  {{ end }}
+
+  <!-- Spotify Embed -->
+  {{ with .Params.spotify_id }}
+  <div class="embed-container">
+    <iframe src="https://open.spotify.com/embed/track/{{ . }}?theme=0" height="152" allow="encrypted-media" loading="lazy"></iframe>
+  </div>
+  {{ end }}
+
+  <!-- YouTube Embed -->
+  {{ with .Params.youtube_id }}
+  <div class="embed-container">
+    <iframe src="https://www.youtube.com/embed/{{ . }}" height="315" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe>
+  </div>
+  {{ end }}
+
+  <!-- Cultural Context -->
+  {{ with .Params.cultural_context }}
+  <div class="cultural-context">
+    <p>{{ . }}</p>
+  </div>
+  {{ end }}
+
+  <!-- Listening Prompt -->
+  {{ with .Params.listening_prompt }}
+  <div class="listening-prompt">
+    <p>{{ . }}</p>
+  </div>
+  {{ end }}
+
+  <!-- Main Content -->
+  <div class="guide-content">
+    {{ .Content }}
+  </div>
+
+  <!-- Listen / Buy Links -->
+  <div class="listen-links">
+    {{ with .Params.spotify_url }}<a href="{{ . }}" class="listen-link" rel="noopener" target="_blank">Spotify</a>{{ end }}
+    {{ with .Params.youtube_url }}<a href="{{ . }}" class="listen-link" rel="noopener" target="_blank">YouTube</a>{{ end }}
+    {{ with .Params.apple_music_url }}<a href="{{ . }}" class="listen-link" rel="noopener" target="_blank">Apple Music</a>{{ end }}
+    {{ with .Params.bandcamp_url }}<a href="{{ . }}" class="listen-link" rel="noopener" target="_blank">Bandcamp</a>{{ end }}
+    {{ with .Params.amazon_url }}<a href="{{ . }}" class="listen-link" rel="noopener" target="_blank">Amazon</a>{{ end }}
+  </div>
+</article>
+{{ end }}

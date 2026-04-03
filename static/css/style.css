@@ -1,0 +1,434 @@
+/* === Music I Want — Core Styles === */
+/* Dark, warm, mobile-first. Album liner notes meets meditation app. */
+
+:root {
+  --bg: #0d0d12;
+  --bg-card: #16161e;
+  --bg-hover: #1e1e28;
+  --text: #e8e4df;
+  --text-muted: #9a9590;
+  --accent: #d4956a;
+  --accent-soft: #c4845a;
+  --safe-green: #5a9e6f;
+  --caution-yellow: #c4a94d;
+  --warn-red: #b85c5c;
+  --border: #2a2a35;
+  --font-serif: 'Georgia', 'Times New Roman', serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --max-width: 740px;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  line-height: 1.7;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* === Navigation === */
+.site-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.5rem;
+  max-width: 960px;
+  margin: 0 auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.nav-home {
+  font-family: var(--font-serif);
+  font-size: 1.2rem;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.nav-links {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.nav-links a {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: color 0.2s;
+}
+
+.nav-links a:hover {
+  color: var(--text);
+}
+
+/* === Main Content === */
+main {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+}
+
+/* === Typography === */
+h1 {
+  font-family: var(--font-serif);
+  font-size: 2.2rem;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 0.5rem;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-top: 2.5rem;
+  margin-bottom: 0.75rem;
+  color: var(--text);
+}
+
+h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  color: var(--accent);
+}
+
+p {
+  margin-bottom: 1.25rem;
+  color: var(--text-muted);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+a:hover {
+  color: var(--text);
+}
+
+/* === Song Card (used on listing pages) === */
+.song-grid {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 1.5rem;
+}
+
+.song-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.song-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-soft);
+}
+
+.song-card h3 {
+  margin-top: 0;
+  font-family: var(--font-serif);
+  color: var(--text);
+}
+
+.song-card .artist {
+  color: var(--accent);
+  font-size: 0.95rem;
+  margin-bottom: 0.75rem;
+}
+
+.song-card .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+/* === Sensory Rating Badges === */
+.badge {
+  display: inline-block;
+  padding: 0.25rem 0.65rem;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.badge-safe {
+  background: rgba(90, 158, 111, 0.15);
+  color: var(--safe-green);
+  border: 1px solid rgba(90, 158, 111, 0.3);
+}
+
+.badge-moderate {
+  background: rgba(196, 169, 77, 0.15);
+  color: var(--caution-yellow);
+  border: 1px solid rgba(196, 169, 77, 0.3);
+}
+
+.badge-intense {
+  background: rgba(184, 92, 92, 0.15);
+  color: var(--warn-red);
+  border: 1px solid rgba(184, 92, 92, 0.3);
+}
+
+/* === Single Song Page === */
+.song-header {
+  margin-bottom: 2rem;
+}
+
+.song-header .artist {
+  font-size: 1.1rem;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+}
+
+.song-header .album {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+}
+
+.sensory-ratings {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin: 2rem 0;
+}
+
+.sensory-ratings h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+  color: var(--accent);
+  margin-bottom: 1rem;
+}
+
+.rating-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.rating-row:last-child {
+  border-bottom: none;
+}
+
+.rating-label {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.rating-value {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+/* === Embed Container === */
+.embed-container {
+  margin: 2rem 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.embed-container iframe {
+  width: 100%;
+  border: none;
+  border-radius: 12px;
+}
+
+/* === Cultural Context Section === */
+.cultural-context {
+  margin: 2rem 0;
+  padding-left: 1rem;
+  border-left: 3px solid var(--accent-soft);
+}
+
+.cultural-context p {
+  color: var(--text);
+  font-style: italic;
+}
+
+/* === Listening Prompt === */
+.listening-prompt {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin: 2rem 0;
+  text-align: center;
+}
+
+.listening-prompt p {
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 1.1rem;
+  line-height: 1.6;
+  margin-bottom: 0;
+}
+
+/* === Recommended For Tags === */
+.recommended-for {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1.5rem 0;
+}
+
+.rec-tag {
+  display: inline-block;
+  padding: 0.3rem 0.75rem;
+  background: rgba(212, 149, 106, 0.1);
+  border: 1px solid rgba(212, 149, 106, 0.25);
+  border-radius: 20px;
+  color: var(--accent);
+  font-size: 0.8rem;
+}
+
+/* === Affiliate Links === */
+.listen-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+
+.listen-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.listen-link:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* === Home Page === */
+.home-hero {
+  text-align: center;
+  padding: 3rem 0 2rem;
+}
+
+.home-hero h1 {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.home-hero .tagline {
+  font-size: 1.15rem;
+  color: var(--text-muted);
+  max-width: 520px;
+  margin: 0 auto 2rem;
+  line-height: 1.6;
+}
+
+.home-cta {
+  display: inline-block;
+  padding: 0.75rem 2rem;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: background 0.2s;
+}
+
+.home-cta:hover {
+  background: var(--accent-soft);
+  color: var(--bg);
+}
+
+/* === Guide Articles === */
+.guide-content {
+  font-size: 1.05rem;
+  line-height: 1.8;
+}
+
+.guide-content p {
+  color: var(--text);
+  margin-bottom: 1.5rem;
+}
+
+.guide-content ul, .guide-content ol {
+  margin-bottom: 1.5rem;
+  padding-left: 1.5rem;
+  color: var(--text);
+}
+
+.guide-content li {
+  margin-bottom: 0.5rem;
+}
+
+/* === Footer === */
+.site-footer {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.site-footer p {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.footer-sub {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+}
+
+/* === Responsive === */
+@media (max-width: 600px) {
+  .site-nav {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .nav-links {
+    gap: 1rem;
+  }
+
+  h1 {
+    font-size: 1.8rem;
+  }
+
+  .home-hero h1 {
+    font-size: 2rem;
+  }
+
+  main {
+    padding: 1.5rem 1rem 3rem;
+  }
+}

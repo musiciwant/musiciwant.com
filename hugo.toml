@@ -1,0 +1,29 @@
+baseURL = "https://musiciwant.com/"
+languageCode = "en-us"
+title = "Music I Want — Sensory-Friendly Music Discovery"
+theme = ""
+enableRobotsTXT = true
+enableEmoji = false
+
+[params]
+  description = "Find music that's safe for you. Every song rated for sensory sensitivity — dynamic range, sudden changes, texture. Discover music on your terms."
+  author = "Dan Cohen"
+  linkedIn = "https://linkedin.com/in/build-ai-for-good"
+
+[taxonomies]
+  mood = "moods"
+  tradition = "traditions"
+  sensory_rating = "sensory_ratings"
+
+[outputs]
+  home = ["HTML", "RSS"]
+  section = ["HTML", "RSS"]
+
+[sitemap]
+  changefreq = "weekly"
+  priority = 0.5
+
+[markup]
+  [markup.goldmark]
+    [markup.goldmark.renderer]
+      unsafe = true

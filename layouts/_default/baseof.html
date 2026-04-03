@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ if .IsHome }}{{ .Site.Title }}{{ else }}{{ .Title }} — {{ .Site.Title }}{{ end }}</title>
+  <meta name="description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description }}{{ end }}">
+  <meta name="author" content="{{ .Site.Params.author }}">
+  <link rel="canonical" href="{{ .Permalink }}">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="{{ .Title }}">
+  <meta property="og:description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description }}{{ end }}">
+  <meta property="og:type" content="{{ if .IsPage }}article{{ else }}website{{ end }}">
+  <meta property="og:url" content="{{ .Permalink }}">
+  {{ with .Params.image }}<meta property="og:image" content="{{ . }}">{{ end }}
+
+  <!-- Structured Data -->
+  {{ if .IsPage }}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "{{ .Title }}",
+    "description": "{{ .Description }}",
+    "url": "{{ .Permalink }}",
+    "datePublished": "{{ .Date.Format "2006-01-02" }}",
+    "author": {
+      "@type": "Person",
+      "name": "{{ .Site.Params.author }}"
+    }
+  }
+  </script>
+  {{ end }}
+
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="site-nav">
+    <a href="/" class="nav-home">Music I Want</a>
+    <div class="nav-links">
+      <a href="/songs/">Library</a>
+      <a href="/guides/">Guides</a>
+      <a href="/finder/">Find Music</a>
+      <a href="/about/">About</a>
+    </div>
+  </nav>
+
+  <main>
+    {{ block "main" . }}{{ end }}
+  </main>
+
+  <footer class="site-footer">
+    <p>Built by <a href="{{ .Site.Params.linkedIn }}" rel="noopener" target="_blank">Dan Cohen</a> &middot; A project of The Hive</p>
+    <p class="footer-sub">Music that fits you. Not the other way around.</p>
+  </footer>
+</body>
+</html>

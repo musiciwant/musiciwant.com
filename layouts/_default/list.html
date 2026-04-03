@@ -1,0 +1,11 @@
+{{ define "main" }}
+<h1>{{ .Title }}</h1>
+{{ with .Content }}<div class="guide-content">{{ . }}</div>{{ end }}
+
+{{ range .Pages.ByDate.Reverse }}
+<a href="{{ .Permalink }}" class="song-card" style="text-decoration:none;display:block;margin-bottom:1rem">
+  <h3>{{ .Title }}</h3>
+  <p style="font-size:0.9rem">{{ .Description }}</p>
+</a>
+{{ end }}
+{{ end }}
