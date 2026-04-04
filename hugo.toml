@@ -6,7 +6,7 @@ enableEmoji = false
 
 [params]
   description = "Find music that's safe for you. Every song rated for sensory sensitivity — dynamic range, sudden changes, texture. Discover music on your terms."
-  author = "Dan Cohen"
+  author = "The Architect"
   linkedIn = "https://linkedin.com/in/build-ai-for-good"
 
 [taxonomies]

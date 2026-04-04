@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Music I Want — Sensory-Friendly Music Discovery</title>
+  <meta name="description" content="Find music that's safe for you. Every song rated for sensory sensitivity — dynamic range, sudden changes, texture. Discover music on your terms.">
+  <meta property="og:title" content="Music I Want — Sensory-Friendly Music Discovery">
+  <meta property="og:description" content="Every song rated for sensory sensitivity. Know what you're about to hear before you press play.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://musiciwant.com">
+  <link rel="canonical" href="https://musiciwant.com">
+  <link rel="stylesheet" href="/css/style.css">
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8335376690790226" crossorigin="anonymous"></script>
+</head>
+<body>
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <a href="/" data-link class="sidebar-logo">Music I Want</a>
+    </div>
+
+    <div class="sidebar-search">
+      <input type="text" id="global-search" placeholder="Search..." class="sidebar-search-input">
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">Menu</div>
+      <a href="/" data-link class="sidebar-link" data-page="home"><span class="sidebar-icon">&#9750;</span> Home</a>
+      <a href="/library" data-link class="sidebar-link" data-page="library"><span class="sidebar-icon">&#9835;</span> Library</a>
+      <a href="/finder" data-link class="sidebar-link" data-page="finder"><span class="sidebar-icon">&#10026;</span> Find Music</a>
+      <a href="/make" data-link class="sidebar-link" data-page="make"><span class="sidebar-icon">&#9836;</span> Make Music</a>
+      <a href="/about" data-link class="sidebar-link" data-page="about"><span class="sidebar-icon">&#9432;</span> About</a>
+    </nav>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Sensory Level</div>
+      <button class="sensory-quick-btn safe" data-level="safe">Safe</button>
+      <button class="sensory-quick-btn moderate" data-level="moderate">Moderate</button>
+      <button class="sensory-quick-btn intense" data-level="intense">Intense</button>
+      <button class="sensory-quick-btn all active" data-level="">All</button>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Your Playlists</div>
+      <div id="sidebar-playlists"></div>
+      <a href="/playlists" data-link class="sidebar-link small"><span class="sidebar-icon">+</span> Manage Playlists</a>
+    </div>
+
+    <div class="sidebar-stats" id="sidebar-stats"></div>
+  </aside>
+
+  <!-- Mobile nav toggle -->
+  <button class="mobile-toggle" id="mobile-toggle">&#9776;</button>
+
+  <!-- Main content -->
+  <main class="main-content" id="app">
+  </main>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

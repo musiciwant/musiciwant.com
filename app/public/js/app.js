@@ -1,0 +1,670 @@
+// Music I Want — Dashboard SPA
+const app = document.getElementById('app');
+let currentSensoryFilter = '';
+
+// --- Playlist Storage ---
+function getPlaylists() { try { return JSON.parse(localStorage.getItem('miw_playlists') || '[]'); } catch { return []; } }
+function savePlaylists(p) { localStorage.setItem('miw_playlists', JSON.stringify(p)); }
+function createPlaylist(name) { const p = getPlaylists(); const pl = { id: Date.now().toString(36), name, songs: [], created: new Date().toISOString() }; p.push(pl); savePlaylists(p); return pl; }
+function addToPlaylist(pid, song) { const p = getPlaylists(); const pl = p.find(x => x.id === pid); if (pl && !pl.songs.find(s => s.slug === song.slug)) { pl.songs.push({ slug: song.slug, title: song.title, artist: song.artist, sensory_level: song.sensory_level, spotify_id: song.spotify_id, thumbnail_url: song.thumbnail_url }); savePlaylists(p); return true; } return false; }
+function removeFromPlaylist(pid, slug) { const p = getPlaylists(); const pl = p.find(x => x.id === pid); if (pl) { pl.songs = pl.songs.filter(s => s.slug !== slug); savePlaylists(p); } }
+function deletePlaylist(pid) { savePlaylists(getPlaylists().filter(p => p.id !== pid)); syncPlaylistsToServer(); }
+
+// --- Cloud Playlist Sync ---
+function getUserEmail() { return localStorage.getItem('miw_user_email') || ''; }
+function getUserToken() { return localStorage.getItem('miw_user_token') || ''; }
+function setUserEmail(email) { localStorage.setItem('miw_user_email', email); }
+
+async function syncPlaylistsToServer() {
+  const email = getUserEmail();
+  if (!email) return; // Not saved yet — will prompt
+  const playlists = getPlaylists();
+  try {
+    const r = await fetch('/api/playlists/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, playlists })
+    });
+    const data = await r.json();
+    if (data.token) localStorage.setItem('miw_user_token', data.token);
+  } catch (e) { /* silent fail — local still works */ }
+}
+
+function showSavePlaylistPrompt() {
+  if (getUserEmail()) return; // Already saved
+  const pls = getPlaylists();
+  if (pls.length === 0 || pls.every(p => p.songs.length === 0)) return; // Nothing to save
+
+  const existing = document.getElementById('save-pl-banner');
+  if (existing) return; // Already showing
+
+  const banner = document.createElement('div');
+  banner.id = 'save-pl-banner';
+  banner.className = 'save-banner';
+  banner.innerHTML = `
+    <div class="save-banner-content">
+      <div class="save-banner-text">
+        <strong>Save your playlists</strong>
+        <span>Enter your email and we'll send you a link that restores your playlists on any device.</span>
+      </div>
+      <div class="save-banner-form">
+        <input type="email" id="save-pl-email" class="filter-input" placeholder="your@email.com" style="width:220px">
+        <button class="cta-primary" id="save-pl-btn" style="white-space:nowrap;font-size:0.85rem;padding:0.45rem 1rem">Save</button>
+      </div>
+      <button class="save-banner-close" id="save-pl-close">&times;</button>
+    </div>`;
+  document.body.appendChild(banner);
+  setTimeout(() => banner.classList.add('show'), 50);
+
+  document.getElementById('save-pl-btn')?.addEventListener('click', async () => {
+    const email = document.getElementById('save-pl-email').value.trim();
+    if (!email || !email.includes('@')) { showToast('Enter a valid email'); return; }
+
+    setUserEmail(email);
+    await syncPlaylistsToServer();
+    banner.classList.remove('show');
+    setTimeout(() => banner.remove(), 300);
+    showToast('Playlists saved! Check your email for your restore link.');
+  });
+
+  document.getElementById('save-pl-close')?.addEventListener('click', () => {
+    banner.classList.remove('show');
+    setTimeout(() => banner.remove(), 300);
+  });
+}
+
+// Override savePlaylists to also sync
+const _origSavePlaylists = savePlaylists;
+function savePlaylists(p) {
+  localStorage.setItem('miw_playlists', JSON.stringify(p));
+  // Show save prompt if they have playlists but haven't given email
+  setTimeout(() => showSavePlaylistPrompt(), 1000);
+  // Auto-sync if they've already given email
+  if (getUserEmail()) syncPlaylistsToServer();
+}
+
+// --- Router ---
+function navigate(path) { history.pushState(null, '', path); route(); window.scrollTo(0, 0); }
+window.addEventListener('popstate', route);
+document.addEventListener('click', e => { const l = e.target.closest('[data-link]'); if (l) { e.preventDefault(); navigate(l.getAttribute('href')); } });
+
+function route() {
+  const p = location.pathname;
+  updateSidebarActive(p);
+  if (p === '/') renderHome();
+  else if (p === '/library') renderLibrary();
+  else if (p === '/finder') renderFinder();
+  else if (p === '/playlists') renderPlaylists();
+  else if (p.startsWith('/playlist/')) renderPlaylist(p.replace('/playlist/', ''));
+  else if (p === '/make') renderMakeMusic();
+  else if (p === '/about') renderAbout();
+  else if (p.startsWith('/song/')) renderSong(p.replace('/song/', ''));
+  else renderHome();
+  updateSidebarPlaylists();
+}
+
+function updateSidebarActive(path) {
+  document.querySelectorAll('.sidebar-link').forEach(l => {
+    const href = l.getAttribute('href');
+    l.classList.toggle('active', href === path || (href === '/library' && path.startsWith('/song/')));
+  });
+}
+
+function updateSidebarPlaylists() {
+  const el = document.getElementById('sidebar-playlists');
+  if (!el) return;
+  const pls = getPlaylists();
+  el.innerHTML = pls.slice(0, 5).map(pl => `<a href="/playlist/${pl.id}" data-link class="sidebar-pl-link">${pl.name} (${pl.songs.length})</a>`).join('') || '<p style="font-size:0.75rem;color:var(--text-dim);padding:0 0.65rem">None yet</p>';
+}
+
+function updateSidebarStats() {
+  api('/api/filters').then(f => {
+    const el = document.getElementById('sidebar-stats');
+    if (el) el.innerHTML = `${f.artists.length} artists &middot; ${f.traditions.length} traditions`;
+  });
+}
+
+// --- API ---
+async function api(endpoint) { return (await fetch(endpoint)).json(); }
+
+// --- Render Helpers ---
+function sensoryBadge(level) {
+  const cls = level === 'safe' ? 'badge-safe' : level === 'moderate' ? 'badge-moderate' : 'badge-intense';
+  const label = level === 'safe' ? 'Safe' : level === 'moderate' ? 'Moderate' : 'Intense';
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+function songCard(song, opts = {}) {
+  const art = song.thumbnail_url ? `<img class="song-card-art" src="${song.thumbnail_url}" alt="${song.title}" loading="lazy">` : `<div class="song-card-art-placeholder">&#9835;</div>`;
+  const addBtn = opts.showRemove ? `<button class="remove-from-pl-btn" data-slug="${song.slug}" data-playlist="${opts.playlistId}">x</button>` : `<button class="add-to-pl-btn" data-slug="${song.slug}">+</button>`;
+
+  return `<div class="song-card-wrap">
+    ${addBtn}
+    <a href="/song/${song.slug}" data-link class="song-card">
+      ${art}
+      <div class="song-card-body">
+        <h3>${song.title}</h3>
+        <div class="artist">${song.artist}</div>
+        <div class="meta">${sensoryBadge(song.sensory_level)}${song.bpm ? ` <span class="badge badge-neutral">${song.bpm}</span>` : ''}</div>
+      </div>
+    </a>
+  </div>`;
+}
+
+function showPlaylistModal(song) {
+  const pls = getPlaylists();
+  document.getElementById('pl-modal')?.remove();
+  const m = document.createElement('div'); m.id = 'pl-modal'; m.className = 'modal-overlay';
+  m.innerHTML = `<div class="modal-content">
+    <h3>Add to Playlist</h3>
+    <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.75rem">${song.artist} — ${song.title}</p>
+    ${pls.length ? pls.map(pl => `<button class="modal-pl-btn" data-pl-id="${pl.id}">${pl.name} (${pl.songs.length})</button>`).join('') : ''}
+    <div style="margin-top:0.75rem;border-top:1px solid var(--border);padding-top:0.75rem">
+      <input type="text" id="new-pl-name" placeholder="New playlist name..." class="filter-input" style="margin-bottom:0.4rem">
+      <button class="cta-primary" id="create-pl-btn" style="width:100%;font-size:0.85rem;padding:0.45rem">Create & Add</button>
+    </div>
+    <button class="modal-close" id="close-modal">Cancel</button>
+  </div>`;
+  document.body.appendChild(m);
+  m.addEventListener('click', e => {
+    if (e.target.id === 'close-modal' || e.target === m) { m.remove(); return; }
+    const b = e.target.closest('.modal-pl-btn');
+    if (b) { addToPlaylist(b.dataset.plId, song); m.remove(); showToast('Added to playlist'); updateSidebarPlaylists(); }
+    if (e.target.id === 'create-pl-btn') { const n = document.getElementById('new-pl-name').value.trim(); if (n) { const pl = createPlaylist(n); addToPlaylist(pl.id, song); m.remove(); showToast(`Created "${n}"`); updateSidebarPlaylists(); } }
+  });
+}
+
+function showToast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.classList.add('show'), 10); setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 2000); }
+
+// --- Pages ---
+async function renderHome() {
+  app.innerHTML = `
+    <section class="home-hero">
+      <h1>Music that fits you.</h1>
+      <p class="tagline">Every song rated for sensory sensitivity. Know what you're about to hear before you press play.</p>
+      <div class="cta-row">
+        <a href="/finder" data-link class="cta-primary">Find Music For Me</a>
+        <a href="/make" data-link class="cta-primary" style="background:var(--safe)">Make Music</a>
+        <a href="/library" data-link class="cta-secondary">Browse Library</a>
+      </div>
+    </section>
+    <h2>Recently Added</h2>
+    <div class="song-grid" id="recent-songs"></div>
+    <footer class="site-footer">
+      <p>Built by <a href="https://linkedin.com/in/build-ai-for-good" rel="noopener" target="_blank">The Architect</a> &middot; A project of The Hive</p>
+      <p class="footer-sub">Music that fits you. Not the other way around.</p>
+    </footer>`;
+  const songs = await api('/api/songs');
+  document.getElementById('recent-songs').innerHTML = songs.slice(0, 12).map(s => songCard(s)).join('');
+  bindCardButtons();
+  updateSidebarStats();
+}
+
+async function renderLibrary() {
+  app.innerHTML = `
+    <h1>Song Library</h1>
+    <div class="filter-bar">
+      <select id="filter-mood" class="filter-select"><option value="">All Moods</option></select>
+      <select id="filter-use" class="filter-select"><option value="">Recommended For...</option></select>
+      <select id="filter-tradition" class="filter-select"><option value="">All Traditions</option></select>
+      <select id="filter-sort" class="filter-select"><option value="">Recent</option><option value="artist">Artist A-Z</option><option value="dynamic_range_asc">Calmest</option><option value="dynamic_range_desc">Intense</option></select>
+    </div>
+    <div class="result-count" id="song-count"></div>
+    <div class="song-grid" id="song-list"></div>`;
+  const f = await api('/api/filters');
+  const ms = document.getElementById('filter-mood'), us = document.getElementById('filter-use'), ts = document.getElementById('filter-tradition');
+  f.moods.forEach(m => ms.innerHTML += `<option value="${m}">${m}</option>`);
+  f.use_cases.forEach(u => us.innerHTML += `<option value="${u}">${u}</option>`);
+  f.traditions.forEach(t => ts.innerHTML += `<option value="${t}">${t}</option>`);
+  loadLibrary();
+  ['filter-mood','filter-use','filter-tradition','filter-sort'].forEach(id => document.getElementById(id)?.addEventListener('change', loadLibrary));
+}
+
+async function loadLibrary() {
+  const p = new URLSearchParams();
+  const gs = document.getElementById('global-search')?.value;
+  if (gs) p.set('search', gs);
+  if (currentSensoryFilter) p.set('sensory_level', currentSensoryFilter);
+  ['mood:filter-mood','recommended_for:filter-use','tradition:filter-tradition','sort:filter-sort'].forEach(pair => {
+    const [k, id] = pair.split(':'); const v = document.getElementById(id)?.value; if (v) p.set(k, v);
+  });
+  const songs = await api('/api/songs?' + p.toString());
+  const cnt = document.getElementById('song-count');
+  if (cnt) cnt.textContent = `${songs.length} song${songs.length !== 1 ? 's' : ''}`;
+  const list = document.getElementById('song-list');
+  if (list) { list.innerHTML = songs.map(s => songCard(s)).join('') || '<p style="color:var(--text-dim)">No songs match.</p>'; bindCardButtons(); }
+}
+
+async function renderSong(slug) {
+  app.innerHTML = '<p>Loading...</p>';
+  const s = await api('/api/songs/' + slug);
+  if (s.error) { app.innerHTML = '<h1>Song not found</h1>'; return; }
+  const sc = s.sudden_changes === 'none' ? 'badge-safe' : s.sudden_changes === 'mild' ? 'badge-moderate' : 'badge-intense';
+  const art = s.thumbnail_url ? `<img class="song-detail-art" src="${s.thumbnail_url}" alt="${s.title}">` : '';
+
+  app.innerHTML = `<div class="song-detail">
+    <div class="song-detail-header">
+      ${art}
+      <div class="song-detail-info">
+        <h1>${s.title}</h1>
+        <div class="artist">${s.artist}</div>
+        <div class="album">${s.album || ''}${s.year ? ' (' + s.year + ')' : ''}</div>
+        <div class="meta" style="margin-top:0.5rem">${sensoryBadge(s.sensory_level)} ${s.bpm ? `<span class="badge badge-neutral">${s.bpm} BPM</span>` : ''}</div>
+        <button class="add-to-pl-btn-large" id="add-song-btn" style="margin-top:0.75rem">+ Playlist</button>
+      </div>
+    </div>
+    <div class="sensory-card">
+      <h2>Sensory Profile</h2>
+      <div class="rating-row"><span class="rating-label">Dynamic Range</span><span class="rating-value">${s.dynamic_range}/10 <span class="dr-bar"><span class="dr-fill" style="width:${s.dynamic_range*10}%"></span></span></span></div>
+      <div class="rating-row"><span class="rating-label">Sudden Changes</span><span class="rating-value ${sc}">${s.sudden_changes}</span></div>
+      <div class="rating-row"><span class="rating-label">Texture</span><span class="rating-value">${s.texture}</span></div>
+      <div class="rating-row"><span class="rating-label">Predictability</span><span class="rating-value">${s.predictability}</span></div>
+      <div class="rating-row"><span class="rating-label">Vocal Style</span><span class="rating-value">${s.vocal_style}</span></div>
+      ${s.sensory_notes ? `<div class="sensory-notes"><strong>Notes:</strong> ${s.sensory_notes}</div>` : ''}
+    </div>
+    ${s.recommended_for?.length ? `<div class="recommended-for">${s.recommended_for.map(r => `<span class="rec-tag">${r}</span>`).join('')}</div>` : ''}
+    ${s.spotify_id ? `<div class="embed-container"><iframe src="https://open.spotify.com/embed/track/${s.spotify_id}?theme=0" height="152" allow="encrypted-media" loading="lazy"></iframe></div>` : ''}
+    ${s.youtube_id ? `<div class="embed-container"><iframe src="https://www.youtube.com/embed/${s.youtube_id}" height="315" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe></div>` : ''}
+    ${s.cultural_context ? `<div class="cultural-context"><p>${s.cultural_context}</p></div>` : ''}
+    ${s.listening_prompt ? `<div class="listening-prompt"><p>${s.listening_prompt}</p></div>` : ''}
+    ${s.arc_description ? `<div class="guide-content">${s.arc_description.split('\\n\\n').map(p => `<p>${p}</p>`).join('')}</div>` : ''}
+    <div class="listen-links">
+      ${s.spotify_url ? `<a href="${s.spotify_url}" class="listen-link" rel="noopener" target="_blank">Spotify</a>` : ''}
+      ${s.youtube_url ? `<a href="${s.youtube_url}" class="listen-link" rel="noopener" target="_blank">YouTube</a>` : ''}
+    </div>
+
+    <div class="affiliate-section">
+      <span class="affiliate-disclosure">affiliate links</span>
+      <h3>Listen with care</h3>
+      <p>For sensory-sensitive listening, the right headphones matter. Over-ear, noise-canceling, with gentle clamping pressure.</p>
+      <div class="affiliate-links">
+        <a href="https://www.ebay.com/sch/i.html?_nkw=noise+cancelling+headphones+comfortable&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">Noise-Canceling Headphones</a>
+        <a href="https://www.ebay.com/sch/i.html?_nkw=weighted+blanket&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">Weighted Blankets</a>
+        ${s.artist ? `<a href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(s.artist + ' vinyl')}&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">${s.artist} on Vinyl</a>` : ''}
+        <a href="https://www.ebay.com/sch/i.html?_nkw=sensory+fidget+tools&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">Sensory Tools</a>
+      </div>
+    </div>
+
+    <div style="margin-top:1.5rem"><a href="/library" data-link style="color:var(--accent)">&larr; Back to Library</a></div>
+  </div>`;
+  document.getElementById('add-song-btn')?.addEventListener('click', () => showPlaylistModal(s));
+}
+
+function renderFinder() {
+  app.innerHTML = `<h1>Find Music For Me</h1><p>Answer a few questions. We'll find something that fits.</p>
+    <div id="finder">
+      <div class="finder-step" id="step-1"><h3>How are you feeling?</h3><div class="finder-options">
+        <button class="finder-btn" data-field="feeling" data-value="anxious">Anxious</button><button class="finder-btn" data-field="feeling" data-value="scattered">Scattered</button><button class="finder-btn" data-field="feeling" data-value="heavy">Heavy</button><button class="finder-btn" data-field="feeling" data-value="restless">Restless</button><button class="finder-btn" data-field="feeling" data-value="numb">Numb</button><button class="finder-btn" data-field="feeling" data-value="okay">Okay</button>
+      </div></div>
+      <div class="finder-step hidden" id="step-2"><h3>What do you need?</h3><div class="finder-options">
+        <button class="finder-btn" data-field="need" data-value="calm">Calm</button><button class="finder-btn" data-field="need" data-value="focus">Focus</button><button class="finder-btn" data-field="need" data-value="release">Release</button><button class="finder-btn" data-field="need" data-value="energy">Energy</button><button class="finder-btn" data-field="need" data-value="feel">To feel something</button>
+      </div></div>
+      <div class="finder-step hidden" id="step-3"><h3>Vocals?</h3><div class="finder-options">
+        <button class="finder-btn" data-field="vocal_preference" data-value="vocals">Vocals</button><button class="finder-btn" data-field="vocal_preference" data-value="instrumental">Instrumental</button><button class="finder-btn" data-field="vocal_preference" data-value="no_preference">No preference</button>
+      </div></div>
+    </div>
+    <div id="finder-results" class="song-grid" style="margin-top:1.5rem"></div>`;
+  const state = {}; let step = 0; const steps = ['step-1','step-2','step-3'];
+  document.getElementById('finder').addEventListener('click', async e => {
+    const b = e.target.closest('.finder-btn'); if (!b) return;
+    state[b.dataset.field] = b.dataset.value;
+    b.parentElement.querySelectorAll('.finder-btn').forEach(x => x.classList.remove('selected')); b.classList.add('selected');
+    step++;
+    if (step < steps.length) setTimeout(() => document.getElementById(steps[step]).classList.remove('hidden'), 200);
+    else {
+      const res = await fetch('/api/finder', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(state) });
+      const songs = await res.json();
+      document.getElementById('finder-results').innerHTML = songs.length ? '<h2>Here\'s what we found</h2>' + songs.map(s => songCard(s)).join('') : '<p style="color:var(--text-dim)">No match yet — try the <a href="/library" data-link>library</a>.</p>';
+      bindCardButtons();
+    }
+  });
+}
+
+function renderPlaylists() {
+  const pls = getPlaylists();
+  const email = getUserEmail();
+  const savedStatus = email
+    ? `<div class="save-status saved"><span class="save-dot"></span> Playlists synced to <strong>${email}</strong></div>`
+    : `<div class="save-status unsaved"><span class="save-dot"></span> Playlists only saved in this browser</div>`;
+
+  app.innerHTML = `<h1>Your Playlists</h1>
+    ${savedStatus}
+    <div style="margin:1rem 0;display:flex;gap:0.5rem;flex-wrap:wrap">
+      <input type="text" id="new-pl-input" placeholder="New playlist name..." class="filter-input" style="max-width:250px;flex:1">
+      <button class="cta-primary" id="create-pl-btn" style="font-size:0.85rem;padding:0.45rem 1rem">Create</button>
+    </div>
+    ${pls.length ? `<div class="playlist-grid">${pls.map(pl => `<div class="playlist-card-wrap"><a href="/playlist/${pl.id}" data-link class="playlist-card"><h3>${pl.name}</h3><p>${pl.songs.length} song${pl.songs.length!==1?'s':''}</p></a><button class="delete-pl-btn" data-pl-id="${pl.id}">x</button></div>`).join('')}</div>` : `<p style="color:var(--text-dim)">No playlists yet. Create one above, then add songs from the library.</p>
+      <div class="recover-section">
+        <h3>Had playlists before?</h3>
+        <p>If you saved playlists on another device or browser, we can send you a link to restore them.</p>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <input type="email" id="recover-email" class="filter-input" placeholder="your@email.com" style="flex:1;min-width:200px">
+          <button class="cta-secondary" id="recover-btn" style="white-space:nowrap;font-size:0.85rem">Recover Playlists</button>
+        </div>
+        <p id="recover-msg" class="make-fine-print" style="margin-top:0.4rem"></p>
+      </div>`}
+    ${!email && pls.length ? `
+      <div class="save-prompt">
+        <h3>Keep your playlists safe</h3>
+        <p>Enter your email and we'll send you a magic link. Click it anytime to restore your playlists on any device — phone, laptop, anywhere.</p>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <input type="email" id="save-email" class="filter-input" placeholder="your@email.com" style="flex:1;min-width:200px">
+          <button class="cta-primary" id="save-btn" style="white-space:nowrap;font-size:0.85rem;padding:0.45rem 1rem">Save My Playlists</button>
+        </div>
+        <p class="make-fine-print">One email with your restore link. No spam, no newsletter, ever.</p>
+      </div>` : ''}`;
+
+  document.getElementById('create-pl-btn')?.addEventListener('click', () => {
+    const n = document.getElementById('new-pl-input')?.value.trim();
+    if (n) { createPlaylist(n); renderPlaylists(); showToast(`Created "${n}"`); updateSidebarPlaylists(); }
+  });
+
+  document.querySelectorAll('.delete-pl-btn').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation(); deletePlaylist(b.dataset.plId); renderPlaylists(); updateSidebarPlaylists(); showToast('Deleted');
+  }));
+
+  document.getElementById('save-btn')?.addEventListener('click', async () => {
+    const email = document.getElementById('save-email').value.trim();
+    if (!email || !email.includes('@')) { showToast('Enter a valid email'); return; }
+    setUserEmail(email);
+    await syncPlaylistsToServer();
+    renderPlaylists();
+    showToast('Playlists saved! Check your email for your restore link.');
+  });
+
+  document.getElementById('recover-btn')?.addEventListener('click', async () => {
+    const email = document.getElementById('recover-email').value.trim();
+    if (!email || !email.includes('@')) { showToast('Enter a valid email'); return; }
+    const msg = document.getElementById('recover-msg');
+    msg.textContent = 'Sending...';
+    try {
+      const r = await fetch('/api/playlists/recover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await r.json();
+      msg.textContent = 'If we have your playlists, a restore link has been sent to your email. Check your inbox.';
+      msg.style.color = 'var(--safe)';
+    } catch (e) {
+      msg.textContent = 'Something went wrong. Try again.';
+      msg.style.color = 'var(--intense)';
+    }
+  });
+}
+
+async function renderPlaylist(id) {
+  const pl = getPlaylists().find(p => p.id === id);
+  if (!pl) { app.innerHTML = '<h1>Not found</h1>'; return; }
+  app.innerHTML = `<h1>${pl.name}</h1><p>${pl.songs.length} song${pl.songs.length!==1?'s':''}</p>
+    ${pl.songs.length ? `<div class="song-grid">${pl.songs.map(s => songCard(s, {showRemove:true, playlistId:id})).join('')}</div>` : '<p style="color:var(--text-dim)">Empty. Browse the <a href="/library" data-link>library</a> to add songs.</p>'}
+    <div style="margin-top:1.5rem"><a href="/playlists" data-link style="color:var(--accent)">&larr; All Playlists</a></div>`;
+  document.querySelectorAll('.remove-from-pl-btn').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); removeFromPlaylist(b.dataset.playlist, b.dataset.slug); renderPlaylist(id); updateSidebarPlaylists(); showToast('Removed'); }));
+}
+
+function renderMakeMusic() {
+  app.innerHTML = `
+    <div class="make-music-page">
+      <h1>Make Music</h1>
+      <p>Describe the music you want to hear. We'll create it for you — a unique song that exists nowhere else.</p>
+
+      <!-- Step 1: Genre -->
+      <div class="make-step" id="make-step-1">
+        <h2>What kind of music?</h2>
+        <p class="make-hint">Pick a starting point. You can describe more in the next step.</p>
+        <div class="genre-grid">
+          <button class="genre-btn" data-genre="ambient"><span class="genre-icon">🌊</span>Ambient<span class="genre-desc">Calm, spacious, flowing</span></button>
+          <button class="genre-btn" data-genre="classical"><span class="genre-icon">🎻</span>Classical<span class="genre-desc">Orchestral, piano, strings</span></button>
+          <button class="genre-btn" data-genre="jazz"><span class="genre-icon">🎷</span>Jazz<span class="genre-desc">Smooth, complex, soulful</span></button>
+          <button class="genre-btn" data-genre="folk"><span class="genre-icon">🪕</span>Folk<span class="genre-desc">Acoustic, warm, storytelling</span></button>
+          <button class="genre-btn" data-genre="electronic"><span class="genre-icon">🎧</span>Electronic<span class="genre-desc">Synths, beats, atmospheric</span></button>
+          <button class="genre-btn" data-genre="lo-fi"><span class="genre-icon">📻</span>Lo-Fi<span class="genre-desc">Chill, hazy, relaxed</span></button>
+          <button class="genre-btn" data-genre="world"><span class="genre-icon">🌍</span>World<span class="genre-desc">Global traditions, fusion</span></button>
+          <button class="genre-btn" data-genre="cinematic"><span class="genre-icon">🎬</span>Cinematic<span class="genre-desc">Film score, dramatic, sweeping</span></button>
+          <button class="genre-btn" data-genre="rock"><span class="genre-icon">🎸</span>Rock<span class="genre-desc">Guitars, energy, drive</span></button>
+          <button class="genre-btn" data-genre="r&b soul"><span class="genre-icon">🎤</span>R&B / Soul<span class="genre-desc">Groovy, emotional, vocal</span></button>
+          <button class="genre-btn" data-genre="meditation"><span class="genre-icon">🧘</span>Meditation<span class="genre-desc">Gentle, still, breathing</span></button>
+          <button class="genre-btn" data-genre="custom"><span class="genre-icon">✨</span>Surprise Me<span class="genre-desc">I'll describe it myself</span></button>
+        </div>
+      </div>
+
+      <!-- Step 2: Sensory + Prompt -->
+      <div class="make-step hidden" id="make-step-2">
+        <h2>Describe your song</h2>
+        <p class="make-hint">The more detail you give, the more personal it gets. Here are some ideas:</p>
+        <div class="prompt-ideas">
+          <button class="idea-chip" data-idea="A gentle piano piece for falling asleep, with soft rain in the background">Piano + rain for sleep</button>
+          <button class="idea-chip" data-idea="An uplifting acoustic guitar song that feels like a sunny morning walk">Sunny morning walk</button>
+          <button class="idea-chip" data-idea="A calm ambient track with slow strings, no sudden changes, safe for sensory overload">Safe for sensory overload</button>
+          <button class="idea-chip" data-idea="A lo-fi hip hop beat with warm vinyl crackle, perfect for studying">Lo-fi study beat</button>
+          <button class="idea-chip" data-idea="An emotional cinematic piece that builds slowly from quiet to powerful">Emotional slow build</button>
+          <button class="idea-chip" data-idea="A peaceful meditation soundscape with singing bowls and gentle drones">Meditation soundscape</button>
+        </div>
+        <textarea id="make-prompt" class="make-textarea" rows="4" placeholder="Describe the music you want to hear..."></textarea>
+
+        <div class="make-options">
+          <div class="make-option">
+            <label>Sensory level</label>
+            <select id="make-sensory" class="filter-select">
+              <option value="safe">Safe — no surprises, gentle</option>
+              <option value="moderate">Moderate — some variation</option>
+              <option value="intense">Intense — dynamic, powerful</option>
+            </select>
+          </div>
+          <div class="make-option">
+            <label>Vocals</label>
+            <select id="make-vocals" class="filter-select">
+              <option value="instrumental">Instrumental only</option>
+              <option value="soft vocals">Soft vocals</option>
+              <option value="dynamic vocals">Dynamic vocals</option>
+              <option value="no preference">No preference</option>
+            </select>
+          </div>
+        </div>
+
+        <button class="cta-primary make-submit" id="make-submit" style="margin-top:1rem;width:100%;padding:0.75rem;font-size:1rem">Create My Song</button>
+      </div>
+
+      <!-- Step 3: Ad Gate + Waiting -->
+      <div class="make-step hidden" id="make-step-3">
+        <div class="make-creating">
+          <div class="make-spinner"></div>
+          <h2>Creating your song...</h2>
+          <p>This usually takes about 1-2 minutes. While you wait:</p>
+        </div>
+
+        <!-- Affiliate browsing section -->
+        <div class="make-while-waiting">
+          <span class="affiliate-disclosure">affiliate links</span>
+          <h3>Explore while you wait</h3>
+          <div class="waiting-links">
+            <a href="https://www.ebay.com/sch/i.html?_nkw=noise+cancelling+headphones+over+ear&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="waiting-card" rel="noopener nofollow" target="_blank">
+              <span class="waiting-icon">🎧</span>
+              <span class="waiting-title">Best Headphones for Listening</span>
+              <span class="waiting-desc">Over-ear, noise-canceling, comfortable for long sessions</span>
+            </a>
+            <a href="https://www.ebay.com/sch/i.html?_nkw=vinyl+record+player+bluetooth&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="waiting-card" rel="noopener nofollow" target="_blank">
+              <span class="waiting-icon">📀</span>
+              <span class="waiting-title">Vinyl Record Players</span>
+              <span class="waiting-desc">Warm analog sound, Bluetooth enabled</span>
+            </a>
+            <a href="https://www.ebay.com/sch/i.html?_nkw=portable+bluetooth+speaker&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="waiting-card" rel="noopener nofollow" target="_blank">
+              <span class="waiting-icon">🔊</span>
+              <span class="waiting-title">Portable Speakers</span>
+              <span class="waiting-desc">Take your music anywhere</span>
+            </a>
+            <a href="https://www.ebay.com/sch/i.html?_nkw=LED+ambient+light+music+sync&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="waiting-card" rel="noopener nofollow" target="_blank">
+              <span class="waiting-icon">💡</span>
+              <span class="waiting-title">Music-Synced LED Lights</span>
+              <span class="waiting-desc">Turn any room into a listening experience</span>
+            </a>
+            <a href="https://www.ebay.com/sch/i.html?_nkw=weighted+blanket&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="waiting-card" rel="noopener nofollow" target="_blank">
+              <span class="waiting-icon">🛋️</span>
+              <span class="waiting-title">Weighted Blankets</span>
+              <span class="waiting-desc">Deep pressure comfort while you listen</span>
+            </a>
+            <a href="https://www.ebay.com/sch/i.html?_nkw=sensory+fidget+toys+adults&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="waiting-card" rel="noopener nofollow" target="_blank">
+              <span class="waiting-icon">🧩</span>
+              <span class="waiting-title">Sensory Fidget Tools</span>
+              <span class="waiting-desc">Calm your hands while your ears discover</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- Notification + Email -->
+        <div class="make-notify">
+          <h3>Don't want to wait?</h3>
+          <p>We'll email you when your song is ready — with a link you can keep forever.</p>
+          <div class="notify-row">
+            <input type="email" id="make-email" class="filter-input" placeholder="your@email.com" style="flex:1">
+            <button class="cta-primary" id="make-notify-btn" style="white-space:nowrap">Notify Me</button>
+          </div>
+          <p class="make-fine-print">We'll only email you about this song. No spam, ever.</p>
+        </div>
+
+        <!-- Result (shown when ready) -->
+        <div class="make-result hidden" id="make-result">
+          <div class="make-result-card">
+            <h2>Your song is ready!</h2>
+            <div id="make-result-player"></div>
+            <div class="make-result-actions">
+              <button class="cta-primary" id="make-share-btn">Share</button>
+              <button class="cta-secondary" id="make-another-btn">Make Another</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  let selectedGenre = '';
+
+  // Step 1: Genre selection
+  document.querySelectorAll('.genre-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.genre-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      selectedGenre = btn.dataset.genre;
+      setTimeout(() => {
+        document.getElementById('make-step-2').classList.remove('hidden');
+        document.getElementById('make-step-2').scrollIntoView({ behavior: 'smooth' });
+        if (selectedGenre !== 'custom') {
+          const ta = document.getElementById('make-prompt');
+          if (!ta.value) ta.placeholder = `Describe your ${selectedGenre} song... What mood? What instruments? What should it feel like?`;
+        }
+      }, 200);
+    });
+  });
+
+  // Idea chips fill the textarea
+  document.querySelectorAll('.idea-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.getElementById('make-prompt').value = chip.dataset.idea;
+    });
+  });
+
+  // Step 2: Submit
+  document.getElementById('make-submit')?.addEventListener('click', () => {
+    const prompt = document.getElementById('make-prompt').value.trim();
+    if (!prompt) { showToast('Describe the music you want'); return; }
+
+    const sensory = document.getElementById('make-sensory').value;
+    const vocals = document.getElementById('make-vocals').value;
+
+    // Build the full prompt
+    const fullPrompt = `${selectedGenre !== 'custom' ? selectedGenre + ' ' : ''}${prompt}. Sensory level: ${sensory}. Vocals: ${vocals}.`;
+
+    // Store the request
+    localStorage.setItem('miw_pending_song', JSON.stringify({
+      prompt: fullPrompt,
+      genre: selectedGenre,
+      sensory: sensory,
+      vocals: vocals,
+      userPrompt: prompt,
+      created: new Date().toISOString()
+    }));
+
+    // Hide step 2, show step 3 (creating)
+    document.getElementById('make-step-1').classList.add('hidden');
+    document.getElementById('make-step-2').classList.add('hidden');
+    document.getElementById('make-step-3').classList.remove('hidden');
+    window.scrollTo(0, 0);
+
+    // TODO: In production, this sends to the server which queues the Suno generation
+    // For now, show the waiting experience
+    showToast('Song queued for creation');
+  });
+
+  // Email notification
+  document.getElementById('make-notify-btn')?.addEventListener('click', () => {
+    const email = document.getElementById('make-email').value.trim();
+    if (!email || !email.includes('@')) { showToast('Enter a valid email'); return; }
+
+    // Store email for this request
+    const pending = JSON.parse(localStorage.getItem('miw_pending_song') || '{}');
+    pending.notifyEmail = email;
+    localStorage.setItem('miw_pending_song', JSON.stringify(pending));
+
+    showToast('We\'ll email you when it\'s ready');
+    document.getElementById('make-notify-btn').textContent = 'Saved';
+    document.getElementById('make-notify-btn').disabled = true;
+  });
+
+  // Make another
+  document.getElementById('make-another-btn')?.addEventListener('click', () => navigate('/make'));
+}
+
+function renderAbout() {
+  app.innerHTML = `<div class="guide-content" style="max-width:640px">
+    <h1>About Music I Want</h1>
+    <h2>Why This Exists</h2>
+    <p>Some people can't just press play. A sudden cymbal crash. An unexpected scream in a chorus. For people with sensory sensitivities — autism, ADHD, anxiety, SPD, or being highly sensitive — these moments hurt.</p>
+    <p>Music I Want rates every song for sensory sensitivity so you can listen with confidence.</p>
+    <h2>How Ratings Work</h2>
+    <ul>
+      <li><strong>Dynamic Range</strong> (1-10) — Volume variation</li>
+      <li><strong>Sudden Changes</strong> — None to extreme</li>
+      <li><strong>Texture</strong> — Smooth to abrasive</li>
+      <li><strong>Predictability</strong> — Can you trust what's next?</li>
+      <li><strong>Vocal Style</strong> — Instrumental to screaming</li>
+    </ul>
+    <h2>Who Built This</h2>
+    <p>Built by <a href="https://linkedin.com/in/build-ai-for-good" rel="noopener" target="_blank">The Architect</a>, University of Delaware alum building AI tools that do genuine good. A project of The Hive.</p>
+  </div>`;
+}
+
+// --- Card button binding ---
+function bindCardButtons() {
+  document.querySelectorAll('.add-to-pl-btn').forEach(b => b.addEventListener('click', async e => {
+    e.preventDefault(); e.stopPropagation();
+    const song = await api('/api/songs/' + b.dataset.slug);
+    showPlaylistModal(song);
+  }));
+}
+
+// --- Sidebar interactions ---
+// Sensory quick filter
+document.querySelectorAll('.sensory-quick-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.sensory-quick-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    currentSensoryFilter = b.dataset.level;
+    if (location.pathname === '/library') loadLibrary();
+    else navigate('/library');
+  });
+});
+
+// Global search
+document.getElementById('global-search')?.addEventListener('input', debounce(() => {
+  if (location.pathname === '/library') loadLibrary();
+  else navigate('/library');
+}, 400));
+
+// Mobile toggle
+document.getElementById('mobile-toggle')?.addEventListener('click', () => {
+  document.getElementById('sidebar')?.classList.toggle('open');
+});
+
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+// Init
+route();

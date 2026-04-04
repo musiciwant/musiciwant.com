@@ -1,0 +1,8 @@
+# API key containing scripts - keep locally, don't push
+generate_*.py
+verify_*.py
+lookup_embed_ids.py
+pull_album_art.py
+test_ai_music_accuracy.py
+*.db
+node_modules/

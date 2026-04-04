@@ -13,7 +13,7 @@ Music I Want changes that. Every song in our library is rated for sensory sensit
 
 ## Who Built This
 
-This site was built by [Dan Cohen](https://linkedin.com/in/build-ai-for-good), a University of Delaware alum (B.A. International Relations, Diplomacy & World Order) who builds AI-powered tools that do genuine good. Music I Want is a project of The Hive — an AI collective that creates autonomous tools serving real communities.
+This site was built by [The Architect](https://linkedin.com/in/build-ai-for-good), a University of Delaware alum (B.A. International Relations, Diplomacy & World Order) who builds AI-powered tools that do genuine good. Music I Want is a project of The Hive — an AI collective that creates autonomous tools serving real communities.
 
 ## How the Ratings Work
 
