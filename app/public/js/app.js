@@ -98,6 +98,8 @@ function route() {
   else if (p.startsWith('/playlist/')) renderPlaylist(p.replace('/playlist/', ''));
   else if (p === '/make') renderMakeMusic();
   else if (p === '/about') renderAbout();
+  else if (p === '/check') renderChecker();
+  else if (p.startsWith('/check/')) renderSong(p.replace('/check/', ''));
   else if (p.startsWith('/song/')) renderSong(p.replace('/song/', ''));
   else renderHome();
   updateSidebarPlaylists();
@@ -184,7 +186,8 @@ async function renderHome() {
       <p class="tagline">Every song rated for sensory sensitivity. Know what you're about to hear before you press play.</p>
       <div class="cta-row">
         <a href="/finder" data-link class="cta-primary">Find Music For Me</a>
-        <a href="/make" data-link class="cta-primary" style="background:var(--safe)">Make Music</a>
+        <a href="/check" data-link class="cta-primary" style="background:var(--safe)">Is This Song Safe?</a>
+        <a href="/make" data-link class="cta-primary" style="background:var(--moderate)">Make Music</a>
         <a href="/library" data-link class="cta-secondary">Browse Library</a>
       </div>
     </section>
@@ -285,9 +288,39 @@ async function renderSong(slug) {
       </div>
     </div>
 
-    <div style="margin-top:1.5rem"><a href="/library" data-link style="color:var(--accent)">&larr; Back to Library</a></div>
+    <div id="alternatives-container"></div>
+
+    <div style="margin-top:1.5rem">
+      <a href="/library" data-link style="color:var(--accent)">&larr; Back to Library</a>
+      &nbsp;&nbsp;
+      <a href="/check" data-link style="color:var(--accent)">Check another song &rarr;</a>
+    </div>
   </div>`;
   document.getElementById('add-song-btn')?.addEventListener('click', () => showPlaylistModal(s));
+
+  // Load safe alternatives for moderate/intense songs
+  if (s.sensory_level !== 'safe') {
+    try {
+      const alts = await api('/api/songs/' + slug + '/alternatives');
+      if (alts.length > 0) {
+        const altCards = alts.map(a => {
+          const abadge = a.sensory_level === 'safe' ? 'badge-safe' : 'badge-moderate';
+          return `<a href="/song/${a.slug}" data-link style="display:block;padding:0.75rem;background:var(--bg-card);border-radius:var(--radius-sm);text-decoration:none;color:var(--text)">
+            <strong>${a.title}</strong><br>
+            <span style="font-size:0.85rem;color:var(--text-muted)">${a.artist}</span>
+            <span class="badge ${abadge}" style="margin-left:0.5rem;font-size:0.7rem">${a.sensory_level}</span>
+          </a>`;
+        }).join('');
+
+        document.getElementById('alternatives-container').innerHTML = `
+          <div style="margin-top:2rem;padding:1.25rem;background:var(--bg-sidebar);border-radius:var(--radius);border:1px solid var(--bg-hover)">
+            <h3 style="margin:0 0 0.75rem 0;font-size:1rem;color:var(--accent)">Safer alternatives with a similar feel</h3>
+            <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 1rem 0">These songs share similar moods but with a gentler sensory profile.</p>
+            <div style="display:flex;flex-direction:column;gap:0.5rem">${altCards}</div>
+          </div>`;
+      }
+    } catch (e) { /* alternatives are non-critical */ }
+  }
 }
 
 function renderFinder() {
@@ -630,6 +663,133 @@ function renderAbout() {
     <h2>Who Built This</h2>
     <p>Built by <a href="https://linkedin.com/in/build-ai-for-good" rel="noopener" target="_blank">The Architect</a>, University of Delaware alum building AI tools that do genuine good. A project of The Hive.</p>
   </div>`;
+}
+
+// --- Song Checker: "Is This Song Safe?" ---
+function renderChecker() {
+  app.innerHTML = `
+    <div style="max-width:640px;margin:0 auto">
+      <h1>Is This Song Safe?</h1>
+      <p style="color:var(--text-muted);margin-bottom:1.5rem">Enter any song and artist. We'll check our database or analyze it for sensory safety.</p>
+
+      <div class="checker-form">
+        <input type="text" id="check-title" class="filter-input" placeholder="Song title" style="width:100%;padding:0.75rem;margin-bottom:0.75rem;font-size:1rem">
+        <input type="text" id="check-artist" class="filter-input" placeholder="Artist name" style="width:100%;padding:0.75rem;margin-bottom:1rem;font-size:1rem">
+        <button id="check-submit" class="cta-primary" style="width:100%;padding:0.75rem;font-size:1rem">Check This Song</button>
+      </div>
+
+      <div id="check-status" style="margin-top:1rem;text-align:center;display:none">
+        <div class="make-spinner"></div>
+        <p style="color:var(--text-muted);margin-top:0.5rem">Analyzing sensory profile...</p>
+      </div>
+
+      <div id="check-error" style="margin-top:1rem;color:var(--intense);display:none"></div>
+
+      <div id="check-result" style="margin-top:1.5rem;display:none"></div>
+
+      <div style="margin-top:2rem;padding:1.25rem;background:var(--bg-card);border-radius:var(--radius)">
+        <h3 style="margin:0 0 0.5rem 0;font-size:0.95rem;color:var(--accent)">How it works</h3>
+        <ul style="color:var(--text-muted);font-size:0.85rem;margin:0;padding-left:1.2rem">
+          <li>We first search our curated library of ${document.getElementById('sidebar-stats')?.textContent?.match(/\\d+/)?.[0] || '1,600'}+ rated songs</li>
+          <li>If the song isn't in our database, AI analyzes it across 5 sensory dimensions</li>
+          <li>AI-analyzed songs are flagged &mdash; curated ratings are verified by humans</li>
+        </ul>
+      </div>
+    </div>`;
+
+  const btn = document.getElementById('check-submit');
+  const titleInput = document.getElementById('check-title');
+  const artistInput = document.getElementById('check-artist');
+
+  btn.addEventListener('click', runCheck);
+  artistInput.addEventListener('keydown', e => { if (e.key === 'Enter') runCheck(); });
+
+  async function runCheck() {
+    const title = titleInput.value.trim();
+    const artist = artistInput.value.trim();
+    if (!title || !artist) return;
+
+    const status = document.getElementById('check-status');
+    const error = document.getElementById('check-error');
+    const result = document.getElementById('check-result');
+
+    status.style.display = 'block';
+    error.style.display = 'none';
+    result.style.display = 'none';
+    btn.disabled = true;
+
+    try {
+      const res = await fetch('/api/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, artist })
+      });
+      const data = await res.json();
+
+      status.style.display = 'none';
+      btn.disabled = false;
+
+      if (data.error) {
+        error.textContent = data.error;
+        error.style.display = 'block';
+        return;
+      }
+
+      if (!data.found) {
+        error.textContent = 'Song not recognized. Try checking the spelling or a different song.';
+        error.style.display = 'block';
+        return;
+      }
+
+      const s = data.song;
+      const sl = s.sensory_level === 'safe' ? 'badge-safe' : s.sensory_level === 'moderate' ? 'badge-moderate' : 'badge-intense';
+      const slLabel = s.sensory_level === 'safe' ? 'Safe' : s.sensory_level === 'moderate' ? 'Moderate' : 'Intense';
+      const sc = s.sudden_changes === 'none' ? 'badge-safe' : s.sudden_changes === 'mild' ? 'badge-moderate' : 'badge-intense';
+
+      result.innerHTML = `
+        <div class="sensory-card" style="margin-bottom:1rem">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+            <div>
+              <h2 style="margin:0;font-size:1.2rem">${s.title}</h2>
+              <div style="color:var(--accent);font-size:0.95rem">${s.artist}</div>
+              ${s.album ? `<div style="color:var(--text-dim);font-size:0.8rem">${s.album}${s.year ? ' (' + s.year + ')' : ''}</div>` : ''}
+            </div>
+            <div>
+              <span class="badge ${sl}" style="font-size:0.9rem;padding:0.3rem 0.8rem">${slLabel}</span>
+              ${s.bpm ? `<span class="badge badge-neutral">${s.bpm} BPM</span>` : ''}
+            </div>
+          </div>
+          ${data.generated ? `<div style="font-size:0.75rem;color:var(--text-dim);background:var(--bg);padding:0.3rem 0.6rem;border-radius:6px;margin-bottom:1rem;display:inline-block">AI-analyzed</div>` : ''}
+          <h3 style="color:var(--accent);font-size:0.95rem;margin:0 0 0.75rem 0">Sensory Profile</h3>
+          <div class="rating-row"><span class="rating-label">Dynamic Range</span><span class="rating-value">${s.dynamic_range}/10</span></div>
+          <div class="rating-row"><span class="rating-label">Sudden Changes</span><span class="rating-value ${sc}">${s.sudden_changes}</span></div>
+          <div class="rating-row"><span class="rating-label">Texture</span><span class="rating-value">${s.texture}</span></div>
+          <div class="rating-row"><span class="rating-label">Predictability</span><span class="rating-value">${s.predictability}</span></div>
+          <div class="rating-row"><span class="rating-label">Vocal Style</span><span class="rating-value">${s.vocal_style}</span></div>
+          ${s.sensory_notes ? `<div class="sensory-notes"><strong>Notes:</strong> ${s.sensory_notes}</div>` : ''}
+          ${s.description ? `<p style="color:var(--text);font-size:0.9rem;margin-top:1rem">${s.description}</p>` : ''}
+        </div>
+        ${s.slug ? `<a href="/song/${s.slug}" data-link style="color:var(--accent);font-size:0.9rem">View full song page &rarr;</a>` : ''}
+
+        <div class="affiliate-section" style="margin-top:1.5rem">
+          <span class="affiliate-disclosure">affiliate links</span>
+          <h3>Listen with care</h3>
+          <p style="font-size:0.85rem;color:var(--text-muted)">For sensory-sensitive listening, the right headphones matter.</p>
+          <div class="affiliate-links">
+            <a href="https://www.ebay.com/sch/i.html?_nkw=noise+cancelling+headphones&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">Noise-Canceling Headphones</a>
+            <a href="https://www.ebay.com/sch/i.html?_nkw=weighted+blanket&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">Weighted Blankets</a>
+          </div>
+        </div>
+      `;
+      result.style.display = 'block';
+
+    } catch (e) {
+      status.style.display = 'none';
+      btn.disabled = false;
+      error.textContent = 'Something went wrong. Please try again.';
+      error.style.display = 'block';
+    }
+  }
 }
 
 // --- Card button binding ---

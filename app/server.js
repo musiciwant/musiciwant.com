@@ -49,6 +49,7 @@ db.exec(`
     amazon_url TEXT DEFAULT '',
 
     -- Metadata
+    source TEXT DEFAULT 'curated',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -104,8 +105,23 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 `);
 
+// Migration: add source column if it doesn't exist
+try { db.exec(`ALTER TABLE songs ADD COLUMN source TEXT DEFAULT 'curated'`); } catch (e) { /* column already exists */ }
+
+// Rate limiting store for song checker
+const checkLimits = new Map();
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const entry = checkLimits.get(ip);
+  if (!entry) { checkLimits.set(ip, { count: 1, reset: now + 3600000 }); return true; }
+  if (now > entry.reset) { checkLimits.set(ip, { count: 1, reset: now + 3600000 }); return true; }
+  if (entry.count >= 10) return false;
+  entry.count++;
+  return true;
+}
+
 // Middleware
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 app.use(express.json());
 
 // --- Admin API (simple key auth) ---
@@ -548,6 +564,226 @@ app.post('/api/finder', (req, res) => {
   res.json([]);
 });
 
+// --- Song Checker: "Is This Song Safe?" ---
+
+const OPENAI_KEY = process.env.OPENAI_KEY || '';
+
+app.post('/api/check', async (req, res) => {
+  const { title, artist } = req.body;
+  if (!title || !artist) return res.status(400).json({ error: 'Title and artist required' });
+
+  // Rate limit
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  if (!checkRateLimit(ip)) return res.status(429).json({ error: 'Too many checks. Try again in an hour.' });
+
+  // Step 1: Check existing database
+  const existing = db.prepare(
+    'SELECT * FROM songs WHERE LOWER(title) LIKE ? AND LOWER(artist) LIKE ? LIMIT 1'
+  ).get(`%${title.toLowerCase()}%`, `%${artist.toLowerCase()}%`);
+
+  if (existing) {
+    existing.moods = db.prepare('SELECT mood FROM song_moods WHERE song_id = ?').all(existing.id).map(r => r.mood);
+    existing.traditions = db.prepare('SELECT tradition FROM song_traditions WHERE song_id = ?').all(existing.id).map(r => r.tradition);
+    existing.recommended_for = db.prepare('SELECT use_case FROM song_recommended_for WHERE song_id = ?').all(existing.id).map(r => r.use_case);
+    return res.json({ found: true, song: existing });
+  }
+
+  // Step 2: AI analysis
+  if (!OPENAI_KEY) {
+    return res.status(503).json({ error: 'AI analysis is not configured. Song not found in our database.' });
+  }
+
+  const slug = (title + '-' + artist).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 80);
+
+  // Check if we already analyzed this slug
+  const cached = db.prepare('SELECT * FROM songs WHERE slug = ?').get(slug);
+  if (cached) {
+    cached.moods = db.prepare('SELECT mood FROM song_moods WHERE song_id = ?').all(cached.id).map(r => r.mood);
+    cached.traditions = db.prepare('SELECT tradition FROM song_traditions WHERE song_id = ?').all(cached.id).map(r => r.tradition);
+    cached.recommended_for = db.prepare('SELECT use_case FROM song_recommended_for WHERE song_id = ?').all(cached.id).map(r => r.use_case);
+    return res.json({ found: true, song: cached });
+  }
+
+  try {
+    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_KEY}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        temperature: 0.3,
+        response_format: { type: 'json_object' },
+        messages: [{
+          role: 'system',
+          content: `You are a music sensory analyst. Given a song title and artist, analyze the song for sensory sensitivity. You must be accurate based on your knowledge of the actual song. If you do not know the song, set "unknown" to true. Return JSON with these exact fields:
+{
+  "unknown": false,
+  "title": "exact song title",
+  "artist": "exact artist name",
+  "album": "album name or empty string",
+  "year": year_number_or_null,
+  "sensory_level": "safe" | "moderate" | "intense",
+  "dynamic_range": 1-10,
+  "sudden_changes": "none" | "mild" | "moderate" | "frequent" | "extreme",
+  "texture": "smooth" | "layered" | "complex" | "harsh" | "abrasive",
+  "predictability": "high" | "medium" | "low",
+  "vocal_style": "instrumental" | "soft vocals" | "spoken word" | "dynamic vocals" | "screaming",
+  "sensory_notes": "1-2 sentence sensory description",
+  "bpm": estimated_bpm_number,
+  "description": "1 sentence song description",
+  "moods": ["mood1", "mood2"],
+  "traditions": ["genre1"],
+  "recommended_for": ["use_case1"]
+}
+Valid moods: calm, contemplative, warm, joyful, melancholy, energetic, spacious, intimate, transcendent, heavy, cathartic, nostalgic, playful, dreamy, serene, uplifting, emotional, reflective, introspective, romantic, confident, rebellious, aggressive, intense
+Valid recommended_for: sleep, focus, anxiety relief, meltdown recovery, deep listening, meditation, movement, energy, emotional release, study, relaxation, workout, yoga`
+        }, {
+          role: 'user',
+          content: `Analyze: "${title}" by ${artist}`
+        }]
+      })
+    });
+
+    const aiData = await aiRes.json();
+    const analysis = JSON.parse(aiData.choices[0].message.content);
+
+    if (analysis.unknown) {
+      return res.json({ found: false, error: 'Song not recognized. We can only analyze songs in our knowledge base.' });
+    }
+
+    // Save to database
+    const insertSong = db.prepare(`
+      INSERT OR IGNORE INTO songs (title, artist, album, year, slug, sensory_level, dynamic_range, sudden_changes, texture, predictability, vocal_style, sensory_notes, bpm, description, source)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ai-checked')
+    `);
+
+    const result = insertSong.run(
+      analysis.title, analysis.artist, analysis.album || '', analysis.year,
+      slug, analysis.sensory_level, analysis.dynamic_range, analysis.sudden_changes,
+      analysis.texture, analysis.predictability, analysis.vocal_style,
+      analysis.sensory_notes || '', analysis.bpm, analysis.description || ''
+    );
+
+    const songId = result.lastInsertRowid || db.prepare('SELECT id FROM songs WHERE slug = ?').get(slug)?.id;
+
+    if (songId && analysis.moods) {
+      const insertMood = db.prepare('INSERT OR IGNORE INTO song_moods (song_id, mood) VALUES (?, ?)');
+      for (const m of analysis.moods) insertMood.run(songId, m);
+    }
+    if (songId && analysis.traditions) {
+      const insertTrad = db.prepare('INSERT OR IGNORE INTO song_traditions (song_id, tradition) VALUES (?, ?)');
+      for (const t of analysis.traditions) insertTrad.run(songId, t);
+    }
+    if (songId && analysis.recommended_for) {
+      const insertRec = db.prepare('INSERT OR IGNORE INTO song_recommended_for (song_id, use_case) VALUES (?, ?)');
+      for (const r of analysis.recommended_for) insertRec.run(songId, r);
+    }
+
+    analysis.slug = slug;
+    analysis.source = 'ai-checked';
+    res.json({ found: true, generated: true, song: analysis });
+
+  } catch (e) {
+    console.error('AI check error:', e.message);
+    res.status(500).json({ error: 'Analysis failed. Please try again.' });
+  }
+});
+
+// --- Safe Alternatives Recommendation Engine ---
+
+app.get('/api/songs/:slug/alternatives', (req, res) => {
+  const song = db.prepare('SELECT * FROM songs WHERE slug = ?').get(req.params.slug);
+  if (!song) return res.status(404).json({ error: 'Song not found' });
+
+  // Only show alternatives for moderate/intense songs
+  if (song.sensory_level === 'safe') return res.json([]);
+
+  const songMoods = db.prepare('SELECT mood FROM song_moods WHERE song_id = ?').all(song.id).map(r => r.mood);
+  const songTraditions = db.prepare('SELECT tradition FROM song_traditions WHERE song_id = ?').all(song.id).map(r => r.tradition);
+
+  // Target level: safe preferred, moderate acceptable for intense songs
+  const targetLevels = song.sensory_level === 'intense' ? ['safe', 'moderate'] : ['safe'];
+
+  // Find candidates with overlapping moods or traditions and lower sensory level
+  let candidates = [];
+
+  if (songMoods.length > 0) {
+    const moodPlaceholders = songMoods.map(() => '?').join(',');
+    const moodCandidates = db.prepare(`
+      SELECT DISTINCT s.*, COUNT(DISTINCT sm.mood) as mood_overlap
+      FROM songs s
+      JOIN song_moods sm ON s.id = sm.song_id
+      WHERE sm.mood IN (${moodPlaceholders})
+        AND s.id != ?
+        AND s.sensory_level IN (${targetLevels.map(() => '?').join(',')})
+      GROUP BY s.id
+      ORDER BY mood_overlap DESC
+      LIMIT 20
+    `).all(...songMoods, song.id, ...targetLevels);
+    candidates.push(...moodCandidates);
+  }
+
+  if (songTraditions.length > 0) {
+    const tradPlaceholders = songTraditions.map(() => '?').join(',');
+    const tradCandidates = db.prepare(`
+      SELECT DISTINCT s.*, COUNT(DISTINCT st.tradition) as trad_overlap
+      FROM songs s
+      JOIN song_traditions st ON s.id = st.song_id
+      WHERE st.tradition IN (${tradPlaceholders})
+        AND s.id != ?
+        AND s.sensory_level IN (${targetLevels.map(() => '?').join(',')})
+      GROUP BY s.id
+      ORDER BY trad_overlap DESC
+      LIMIT 20
+    `).all(...songTraditions, song.id, ...targetLevels);
+
+    // Merge: boost songs that appear in both mood and tradition results
+    for (const tc of tradCandidates) {
+      const existing = candidates.find(c => c.id === tc.id);
+      if (existing) {
+        existing.score = (existing.mood_overlap || 0) + (tc.trad_overlap || 0);
+      } else {
+        tc.score = tc.trad_overlap || 0;
+        candidates.push(tc);
+      }
+    }
+  }
+
+  // Score by overlap + BPM proximity
+  for (const c of candidates) {
+    if (!c.score) c.score = c.mood_overlap || 0;
+    if (song.bpm && c.bpm) {
+      const bpmDiff = Math.abs(song.bpm - c.bpm);
+      if (bpmDiff <= 15) c.score += 2;
+      else if (bpmDiff <= 30) c.score += 1;
+    }
+    // Prefer safe over moderate
+    if (c.sensory_level === 'safe') c.score += 1;
+  }
+
+  // Deduplicate and sort
+  const seen = new Set();
+  const unique = candidates.filter(c => {
+    if (seen.has(c.id)) return false;
+    seen.add(c.id);
+    return true;
+  });
+
+  unique.sort((a, b) => (b.score || 0) - (a.score || 0));
+  const top = unique.slice(0, 5);
+
+  // Attach tags
+  const moodStmt = db.prepare('SELECT mood FROM song_moods WHERE song_id = ?');
+  const tradStmt = db.prepare('SELECT tradition FROM song_traditions WHERE song_id = ?');
+  const recStmt = db.prepare('SELECT use_case FROM song_recommended_for WHERE song_id = ?');
+  for (const s of top) {
+    s.moods = moodStmt.all(s.id).map(r => r.mood);
+    s.traditions = tradStmt.all(s.id).map(r => r.tradition);
+    s.recommended_for = recStmt.all(s.id).map(r => r.use_case);
+  }
+
+  res.json(top);
+});
+
 // --- Guide Articles (server-rendered for SEO) ---
 
 db.exec(`
@@ -594,6 +830,7 @@ function renderGuidePage(guide) {
       <a href="/" class="sidebar-link"><span class="sidebar-icon">&#9750;</span> Home</a>
       <a href="/library" class="sidebar-link"><span class="sidebar-icon">&#9835;</span> Library</a>
       <a href="/finder" class="sidebar-link"><span class="sidebar-icon">&#10026;</span> Find Music</a>
+      <a href="/check" class="sidebar-link"><span class="sidebar-icon">&#10003;</span> Check a Song</a>
       <a href="/about" class="sidebar-link"><span class="sidebar-icon">&#9432;</span> About</a>
     </nav>
   </aside>
@@ -642,6 +879,7 @@ app.get('/sitemap.xml', (req, res) => {
   xml += `  <url><loc>${base}/library</loc><changefreq>daily</changefreq><priority>0.9</priority></url>\n`;
   xml += `  <url><loc>${base}/finder</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>\n`;
   xml += `  <url><loc>${base}/about</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>\n`;
+  xml += `  <url><loc>${base}/check</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>\n`;
   const guides = db.prepare('SELECT slug, created_at FROM guides ORDER BY created_at DESC').all();
   for (const guide of guides) {
     xml += `  <url><loc>${base}/guide/${guide.slug}</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>\n`;
@@ -664,10 +902,39 @@ app.get('/robots.txt', (req, res) => {
 // --- HTML Routes (SPA with server-rendered SEO pages) ---
 
 // Song pages with SEO meta tags
+// Song page — full server-rendered content for SEO
 app.get('/song/:slug', (req, res) => {
   const song = db.prepare('SELECT * FROM songs WHERE slug = ?').get(req.params.slug);
-  if (song) return res.send(renderSongPage(song));
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  if (!song) return res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  song.moods = db.prepare('SELECT mood FROM song_moods WHERE song_id = ?').all(song.id).map(r => r.mood);
+  song.traditions = db.prepare('SELECT tradition FROM song_traditions WHERE song_id = ?').all(song.id).map(r => r.tradition);
+  song.recommended_for = db.prepare('SELECT use_case FROM song_recommended_for WHERE song_id = ?').all(song.id).map(r => r.use_case);
+  res.send(renderSongPage(song));
+});
+
+// Homepage — server-rendered with content
+app.get('/', (req, res) => {
+  const songs = db.prepare('SELECT * FROM songs ORDER BY created_at DESC LIMIT 24').all();
+  const totalSongs = db.prepare('SELECT COUNT(*) as c FROM songs').get().c;
+  const totalArtists = db.prepare('SELECT COUNT(DISTINCT artist) as c FROM songs').get().c;
+  res.send(renderHomePage(songs, totalSongs, totalArtists));
+});
+
+// Library — server-rendered full song list
+app.get('/library', (req, res) => {
+  const songs = db.prepare('SELECT slug, title, artist, sensory_level, bpm FROM songs ORDER BY artist, title').all();
+  res.send(renderLibraryPage(songs));
+});
+
+// Checker result page — server-rendered for SEO
+app.get('/check/:slug', (req, res) => {
+  const song = db.prepare('SELECT * FROM songs WHERE slug = ?').get(req.params.slug);
+  if (!song) return res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  song.moods = db.prepare('SELECT mood FROM song_moods WHERE song_id = ?').all(song.id).map(r => r.mood);
+  song.traditions = db.prepare('SELECT tradition FROM song_traditions WHERE song_id = ?').all(song.id).map(r => r.tradition);
+  song.recommended_for = db.prepare('SELECT use_case FROM song_recommended_for WHERE song_id = ?').all(song.id).map(r => r.use_case);
+  // Render the same song page but with checker branding
+  res.send(renderSongPage(song, true));
 });
 
 // All other routes — serve SPA
@@ -675,34 +942,269 @@ app.use((req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-function renderSongPage(song) {
+// --- Server Render Functions ---
+
+function sidebarHTML() {
+  return `<aside class="sidebar">
+    <div class="sidebar-header"><a href="/" class="sidebar-logo">Music I Want</a></div>
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">Menu</div>
+      <a href="/" class="sidebar-link"><span class="sidebar-icon">&#9750;</span> Home</a>
+      <a href="/library" class="sidebar-link"><span class="sidebar-icon">&#9835;</span> Library</a>
+      <a href="/finder" class="sidebar-link"><span class="sidebar-icon">&#10026;</span> Find Music</a>
+      <a href="/check" class="sidebar-link"><span class="sidebar-icon">&#10003;</span> Check a Song</a>
+      <a href="/make" class="sidebar-link"><span class="sidebar-icon">&#9836;</span> Make Music</a>
+      <a href="/about" class="sidebar-link"><span class="sidebar-icon">&#9432;</span> About</a>
+    </nav>
+  </aside>`;
+}
+
+function headHTML(title, description, url) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${song.title} by ${song.artist} — Sensory Rating | Music I Want</title>
-  <meta name="description" content="${song.description}">
-  <meta property="og:title" content="${song.title} by ${song.artist} — Sensory Rating">
-  <meta property="og:description" content="${song.description}">
-  <meta property="og:type" content="article">
-  <meta property="og:url" content="https://musiciwant.com/song/${song.slug}">
-  <link rel="canonical" href="https://musiciwant.com/song/${song.slug}">
+  <title>${title}</title>
+  <meta name="description" content="${description}">
+  <meta property="og:title" content="${title}">
+  <meta property="og:description" content="${description}">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="${url}">
+  <link rel="canonical" href="${url}">
+  <link rel="stylesheet" href="/css/style.css">
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8335376690790226" crossorigin="anonymous"></script>
+</head>`;
+}
+
+function footerHTML() {
+  return `<footer class="site-footer">
+    <p>Built by <a href="https://linkedin.com/in/build-ai-for-good" rel="noopener" target="_blank">The Architect</a> &middot; A project of The Hive</p>
+    <p class="footer-sub">Music that fits you. Not the other way around.</p>
+  </footer>`;
+}
+
+function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+function renderAlternativesSection(song) {
+  if (song.sensory_level === 'safe') return '';
+
+  const songMoods = song.moods || [];
+  const songTraditions = song.traditions || [];
+  const targetLevels = song.sensory_level === 'intense' ? ['safe', 'moderate'] : ['safe'];
+
+  let candidates = [];
+
+  if (songMoods.length > 0) {
+    const moodPlaceholders = songMoods.map(() => '?').join(',');
+    const moodCandidates = db.prepare(`
+      SELECT DISTINCT s.slug, s.title, s.artist, s.sensory_level, s.bpm, COUNT(DISTINCT sm.mood) as overlap
+      FROM songs s JOIN song_moods sm ON s.id = sm.song_id
+      WHERE sm.mood IN (${moodPlaceholders}) AND s.id != ? AND s.sensory_level IN (${targetLevels.map(() => '?').join(',')})
+      GROUP BY s.id ORDER BY overlap DESC LIMIT 10
+    `).all(...songMoods, song.id, ...targetLevels);
+    candidates.push(...moodCandidates);
+  }
+
+  // Deduplicate
+  const seen = new Set();
+  const unique = candidates.filter(c => { if (seen.has(c.slug)) return false; seen.add(c.slug); return true; });
+  const top = unique.slice(0, 5);
+
+  if (top.length === 0) return '';
+
+  const altCards = top.map(a => {
+    const badge = a.sensory_level === 'safe' ? 'badge-safe' : 'badge-moderate';
+    return `<a href="/song/${a.slug}" style="display:block;padding:0.75rem;background:var(--bg-card);border-radius:var(--radius-sm);text-decoration:none;color:var(--text)">
+      <strong>${esc(a.title)}</strong><br>
+      <span style="font-size:0.85rem;color:var(--text-muted)">${esc(a.artist)}</span>
+      <span class="badge ${badge}" style="margin-left:0.5rem;font-size:0.7rem">${a.sensory_level}</span>
+    </a>`;
+  }).join('');
+
+  return `<div style="margin-top:2rem;padding:1.25rem;background:var(--bg-sidebar);border-radius:var(--radius);border:1px solid var(--bg-hover)">
+    <h3 style="margin:0 0 0.75rem 0;font-size:1rem;color:var(--accent)">Safer alternatives with a similar feel</h3>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 1rem 0">These songs share similar moods but with a gentler sensory profile.</p>
+    <div style="display:flex;flex-direction:column;gap:0.5rem">${altCards}</div>
+  </div>`;
+}
+
+function renderSongPage(song, isChecker) {
+  const sc = song.sudden_changes === 'none' ? 'badge-safe' : song.sudden_changes === 'mild' ? 'badge-moderate' : 'badge-intense';
+  const sl = song.sensory_level === 'safe' ? 'badge-safe' : song.sensory_level === 'moderate' ? 'badge-moderate' : 'badge-intense';
+  const arcParagraphs = (song.arc_description || '').split(/\\n\\n|\n\n/).filter(p => p.trim()).map(p => `<p>${esc(p)}</p>`).join('');
+
+  return `${headHTML(
+    `${esc(song.title)} by ${esc(song.artist)} — Sensory Rating | Music I Want`,
+    esc(song.description),
+    `https://musiciwant.com/song/${song.slug}`
+  )}
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "MusicRecording",
-    "name": "${song.title}",
-    "byArtist": {"@type": "MusicGroup", "name": "${song.artist}"},
-    "inAlbum": {"@type": "MusicAlbum", "name": "${song.album}"},
-    "description": "${song.description}"
+    "name": "${esc(song.title)}",
+    "byArtist": {"@type": "MusicGroup", "name": "${esc(song.artist)}"},
+    "inAlbum": {"@type": "MusicAlbum", "name": "${esc(song.album)}"},
+    "description": "${esc(song.description)}",
+    "datePublished": "${song.year || ''}",
+    "url": "https://musiciwant.com/song/${song.slug}"
   }
   </script>
-  <link rel="stylesheet" href="/css/style.css">
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8335376690790226" crossorigin="anonymous"></script>
-</head>
 <body>
-  <div id="app"></div>
+  ${sidebarHTML()}
+  <main class="main-content">
+    <div id="app">
+      <div class="song-detail" style="max-width:720px;margin:0 auto">
+        <div class="song-detail-header">
+          ${song.thumbnail_url ? `<img class="song-detail-art" src="${song.thumbnail_url}" alt="${esc(song.title)} album art" width="180" height="180">` : ''}
+          <div class="song-detail-info">
+            <h1>${esc(song.title)}</h1>
+            <div class="artist" style="font-size:1.05rem;color:var(--accent)">${esc(song.artist)}</div>
+            <div style="font-size:0.85rem;color:var(--text-muted)">${esc(song.album)}${song.year ? ' (' + song.year + ')' : ''}</div>
+            <div class="meta" style="margin-top:0.5rem">
+              <span class="badge ${sl}">${song.sensory_level === 'safe' ? 'Safe' : song.sensory_level === 'moderate' ? 'Moderate' : 'Intense'}</span>
+              ${song.bpm ? `<span class="badge badge-neutral">${song.bpm} BPM</span>` : ''}
+            </div>
+            ${song.source === 'ai-checked' ? `<div style="margin-top:0.5rem;font-size:0.75rem;color:var(--text-dim);background:var(--bg-card);display:inline-block;padding:0.25rem 0.6rem;border-radius:6px">AI-analyzed &mdash; <a href="/check" style="color:var(--accent)">check another song</a></div>` : ''}
+          </div>
+        </div>
+
+        <div class="sensory-card">
+          <h2>Sensory Profile</h2>
+          <div class="rating-row"><span class="rating-label">Dynamic Range</span><span class="rating-value">${song.dynamic_range}/10</span></div>
+          <div class="rating-row"><span class="rating-label">Sudden Changes</span><span class="rating-value ${sc}">${song.sudden_changes}</span></div>
+          <div class="rating-row"><span class="rating-label">Texture</span><span class="rating-value">${song.texture}</span></div>
+          <div class="rating-row"><span class="rating-label">Predictability</span><span class="rating-value">${song.predictability}</span></div>
+          <div class="rating-row"><span class="rating-label">Vocal Style</span><span class="rating-value">${song.vocal_style}</span></div>
+          ${song.sensory_notes ? `<div class="sensory-notes"><strong>Notes:</strong> ${esc(song.sensory_notes)}</div>` : ''}
+        </div>
+
+        ${song.recommended_for && song.recommended_for.length ? `<div class="recommended-for"><strong>Recommended for:</strong> ${song.recommended_for.map(r => `<span class="rec-tag">${esc(r)}</span>`).join(' ')}</div>` : ''}
+
+        ${song.description ? `<p style="color:var(--text);font-size:0.95rem;margin:1.5rem 0">${esc(song.description)}</p>` : ''}
+
+        ${song.cultural_context ? `<div class="cultural-context"><h3>Cultural Context</h3><p>${esc(song.cultural_context)}</p></div>` : ''}
+
+        ${song.listening_prompt ? `<div class="listening-prompt"><h3>Listening Prompt</h3><p>${esc(song.listening_prompt)}</p></div>` : ''}
+
+        ${arcParagraphs ? `<div class="guide-content"><h3>What to Expect</h3>${arcParagraphs}</div>` : ''}
+
+        ${song.spotify_id ? `<div class="embed-container"><iframe src="https://open.spotify.com/embed/track/${song.spotify_id}?theme=0" height="152" allow="encrypted-media" loading="lazy" title="Listen to ${esc(song.title)} on Spotify"></iframe></div>` : ''}
+
+        ${song.youtube_id ? `<div class="embed-container"><iframe src="https://www.youtube.com/embed/${song.youtube_id}" height="315" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy" title="Watch ${esc(song.title)} on YouTube"></iframe></div>` : ''}
+
+        <div class="listen-links">
+          ${song.spotify_url ? `<a href="${song.spotify_url}" class="listen-link" rel="noopener" target="_blank">Listen on Spotify</a>` : ''}
+          ${song.youtube_url ? `<a href="${song.youtube_url}" class="listen-link" rel="noopener" target="_blank">Watch on YouTube</a>` : ''}
+        </div>
+
+        <div class="affiliate-section">
+          <span class="affiliate-disclosure">affiliate links</span>
+          <h3>Listen with care</h3>
+          <p>For sensory-sensitive listening, the right headphones matter.</p>
+          <div class="affiliate-links">
+            <a href="https://www.ebay.com/sch/i.html?_nkw=noise+cancelling+headphones&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">Noise-Canceling Headphones</a>
+            <a href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(song.artist + ' vinyl')}&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">${esc(song.artist)} on Vinyl</a>
+          </div>
+        </div>
+
+        ${song.moods && song.moods.length ? `<p style="color:var(--text-dim);font-size:0.8rem">Moods: ${song.moods.join(', ')}</p>` : ''}
+        ${song.traditions && song.traditions.length ? `<p style="color:var(--text-dim);font-size:0.8rem">Traditions: ${song.traditions.join(', ')}</p>` : ''}
+
+        ${renderAlternativesSection(song)}
+
+        <div style="margin-top:2rem">
+          <a href="/library" style="color:var(--accent)">&larr; Back to Library</a>
+          &nbsp;&nbsp;
+          <a href="/check" style="color:var(--accent)">Check another song &rarr;</a>
+        </div>
+      </div>
+    </div>
+    ${footerHTML()}
+  </main>
+  <script src="/js/app.js"></script>
+</body>
+</html>`;
+}
+
+function renderHomePage(recentSongs, totalSongs, totalArtists) {
+  const songList = recentSongs.map(s => `<li><a href="/song/${s.slug}">${esc(s.title)}</a> by ${esc(s.artist)} — <span class="badge badge-${s.sensory_level === 'safe' ? 'safe' : s.sensory_level === 'moderate' ? 'moderate' : 'intense'}">${s.sensory_level}</span></li>`).join('');
+
+  return `${headHTML(
+    'Music I Want — Sensory-Friendly Music Discovery',
+    'Find music that fits you. Every song rated for sensory sensitivity — dynamic range, sudden changes, texture. Discover music on your terms.',
+    'https://musiciwant.com'
+  )}
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"WebSite","name":"Music I Want","url":"https://musiciwant.com","description":"Every song rated for sensory sensitivity. Find music that fits you."}
+  </script>
+<body>
+  ${sidebarHTML()}
+  <main class="main-content">
+    <div id="app">
+      <section class="home-hero">
+        <h1>Music that fits you.</h1>
+        <p class="tagline">Every song rated for sensory sensitivity. Know what you're about to hear before you press play. Dynamic range, sudden changes, texture — so you can listen safely and discover freely.</p>
+        <p>${totalSongs} songs from ${totalArtists} artists, each with a complete sensory profile.</p>
+        <div class="cta-row">
+          <a href="/finder" class="cta-primary">Find Music For Me</a>
+          <a href="/make" class="cta-primary" style="background:var(--safe)">Make Music</a>
+          <a href="/library" class="cta-secondary">Browse Library</a>
+        </div>
+      </section>
+
+      <h2>What is Music I Want?</h2>
+      <p>Some people can't just press play. A sudden cymbal crash, an unexpected scream, a bass drop — for people with sensory sensitivities (autism, ADHD, anxiety, SPD, HSP), these moments hurt. Music I Want rates every song for sensory safety so you can listen with confidence.</p>
+
+      <h2>Recently Added</h2>
+      <ul style="list-style:none;padding:0">${songList}</ul>
+
+      <h2>How Our Ratings Work</h2>
+      <p>Every song has a sensory profile covering dynamic range (1-10), sudden changes (none to extreme), texture (smooth to abrasive), predictability (high to low), and vocal style. We rate songs as Sensory Safe, Moderate, or Intense so you know what to expect before you press play.</p>
+
+      <p><a href="/about">Learn more about our rating system</a> | <a href="/library">Browse all ${totalSongs} songs</a></p>
+    </div>
+    ${footerHTML()}
+  </main>
+  <script src="/js/app.js"></script>
+</body>
+</html>`;
+}
+
+function renderLibraryPage(songs) {
+  const grouped = {};
+  for (const s of songs) {
+    const letter = (s.artist || '#')[0].toUpperCase();
+    if (!grouped[letter]) grouped[letter] = [];
+    grouped[letter].push(s);
+  }
+  const letters = Object.keys(grouped).sort();
+  const content = letters.map(letter => {
+    const items = grouped[letter].map(s =>
+      `<li><a href="/song/${s.slug}">${esc(s.title)}</a> by <strong>${esc(s.artist)}</strong> — <span class="badge badge-${s.sensory_level === 'safe' ? 'safe' : s.sensory_level === 'moderate' ? 'moderate' : 'intense'}">${s.sensory_level}</span>${s.bpm ? ` ${s.bpm} BPM` : ''}</li>`
+    ).join('');
+    return `<h3 id="letter-${letter}">${letter}</h3><ul style="list-style:none;padding:0">${items}</ul>`;
+  }).join('');
+
+  const letterNav = letters.map(l => `<a href="#letter-${l}" style="margin:0 0.25rem">${l}</a>`).join('');
+
+  return `${headHTML(
+    'Song Library — Music I Want',
+    `Browse ${songs.length} songs rated for sensory sensitivity. Every song has a complete sensory profile.`,
+    'https://musiciwant.com/library'
+  )}
+<body>
+  ${sidebarHTML()}
+  <main class="main-content">
+    <div id="app">
+      <h1>Song Library</h1>
+      <p>${songs.length} songs rated for sensory sensitivity. Search, filter, and discover music that fits you.</p>
+      <p style="font-size:0.85rem;color:var(--text-dim)">Jump to: ${letterNav}</p>
+      ${content}
+    </div>
+    ${footerHTML()}
+  </main>
   <script src="/js/app.js"></script>
 </body>
 </html>`;
