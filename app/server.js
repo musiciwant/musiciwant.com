@@ -1163,7 +1163,7 @@ function renderHomePage(recentSongs, totalSongs, totalArtists) {
   const songList = recentSongs.map(s => `<li><a href="/song/${s.slug}">${esc(s.title)}</a> by ${esc(s.artist)} — <span class="badge badge-${s.sensory_level === 'safe' ? 'safe' : s.sensory_level === 'moderate' ? 'moderate' : 'intense'}">${s.sensory_level}</span></li>`).join('');
 
   return `${headHTML(
-    'Music I Want — Sensory-Friendly Music Discovery',
+    'Music I Want — Find the Music You Want',
     'Find the music you want. Search any song, discover by mood, or create your own. Music rated for sleep, focus, anxiety, sensory safety, and more.',
     'https://musiciwant.com'
   )}
