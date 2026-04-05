@@ -481,6 +481,22 @@ a:hover { color: var(--text); }
   text-decoration: none;
 }
 .cta-primary:hover { background: var(--accent-soft); color: var(--bg); }
+.home-cat-btn {
+  padding: 0.5rem 1rem;
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--bg-hover);
+  border-radius: 20px;
+  font-size: 0.85rem;
+  text-decoration: none;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.home-cat-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .cta-secondary {
   padding: 0.6rem 1.5rem;
   background: transparent;

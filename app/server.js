@@ -1164,7 +1164,7 @@ function renderHomePage(recentSongs, totalSongs, totalArtists) {
 
   return `${headHTML(
     'Music I Want — Sensory-Friendly Music Discovery',
-    'Find music that fits you. Every song rated for sensory sensitivity — dynamic range, sudden changes, texture. Discover music on your terms.',
+    'Find the music you want. Search any song, discover by mood, or create your own. Music rated for sleep, focus, anxiety, sensory safety, and more.',
     'https://musiciwant.com'
   )}
   <script type="application/ld+json">
@@ -1175,18 +1175,37 @@ function renderHomePage(recentSongs, totalSongs, totalArtists) {
   <main class="main-content">
     <div id="app">
       <section class="home-hero">
-        <h1>Music that fits you.</h1>
-        <p class="tagline">Every song rated for sensory sensitivity. Know what you're about to hear before you press play. Dynamic range, sudden changes, texture — so you can listen safely and discover freely.</p>
-        <p>${totalSongs} songs from ${totalArtists} artists, each with a complete sensory profile.</p>
-        <div class="cta-row">
-          <a href="/finder" class="cta-primary">Find Music For Me</a>
-          <a href="/make" class="cta-primary" style="background:var(--safe)">Make Music</a>
-          <a href="/library" class="cta-secondary">Browse Library</a>
+        <h1>Find the music you want.</h1>
+        <p class="tagline">Search, discover, or create &mdash; music matched to you. ${totalSongs} songs from ${totalArtists} artists.</p>
+
+        <div style="max-width:500px;margin:1.5rem auto">
+          <div style="display:flex;gap:0.5rem">
+            <form action="/library" method="get" style="display:flex;gap:0.5rem;flex:1">
+              <input type="text" name="search" placeholder="Search any song or artist..." class="filter-input" style="flex:1;padding:0.75rem 1rem;font-size:1rem">
+              <a href="/check" class="cta-primary" style="white-space:nowrap">Check a Song</a>
+            </form>
+          </div>
+        </div>
+
+        <div style="margin-top:2rem">
+          <p style="color:#5a5550;font-size:0.85rem;margin-bottom:0.75rem">What are you looking for?</p>
+          <div style="display:flex;flex-wrap:wrap;gap:0.5rem;justify-content:center">
+            <a href="/library?recommended_for=sleep" class="home-cat-btn">Sleep</a>
+            <a href="/library?recommended_for=focus" class="home-cat-btn">Focus &amp; Study</a>
+            <a href="/library?recommended_for=anxiety+relief" class="home-cat-btn">Anxiety Relief</a>
+            <a href="/library?sensory_level=safe" class="home-cat-btn" style="border-color:var(--safe)">Sensory Safe</a>
+            <a href="/library?recommended_for=energy" class="home-cat-btn">Workout &amp; Energy</a>
+            <a href="/library?recommended_for=meditation" class="home-cat-btn">Meditation</a>
+            <a href="/finder" class="home-cat-btn">Match My Mood</a>
+            <a href="/make" class="home-cat-btn" style="border-color:#c4a94d">Create My Own</a>
+            <a href="/profile" class="home-cat-btn">Build My Profile</a>
+            <a href="/library" class="home-cat-btn">Browse All</a>
+          </div>
         </div>
       </section>
 
       <h2>What is Music I Want?</h2>
-      <p>Some people can't just press play. A sudden cymbal crash, an unexpected scream, a bass drop — for people with sensory sensitivities (autism, ADHD, anxiety, SPD, HSP), these moments hurt. Music I Want rates every song for sensory safety so you can listen with confidence.</p>
+      <p>Whether you need music for focus, sleep, anxiety relief, or sensory safety &mdash; we rate every song so you know what you're about to hear before you press play. Dynamic range, sudden changes, texture, predictability, vocal style. <a href="/check">Check any song instantly</a> or <a href="/library">browse our rated library</a>.</p>
 
       <h2>Recently Added</h2>
       <ul style="list-style:none;padding:0">${songList}</ul>

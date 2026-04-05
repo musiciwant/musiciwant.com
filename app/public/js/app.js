@@ -183,13 +183,30 @@ function showToast(msg) { const t = document.createElement('div'); t.className =
 async function renderHome() {
   app.innerHTML = `
     <section class="home-hero">
-      <h1>Music that fits you.</h1>
-      <p class="tagline">Every song rated for sensory sensitivity. Know what you're about to hear before you press play.</p>
-      <div class="cta-row">
-        <a href="/finder" data-link class="cta-primary">Find Music For Me</a>
-        <a href="/check" data-link class="cta-primary" style="background:var(--safe)">Is This Song Safe?</a>
-        <a href="/make" data-link class="cta-primary" style="background:var(--moderate)">Make Music</a>
-        <a href="/library" data-link class="cta-secondary">Browse Library</a>
+      <h1>Find the music you want.</h1>
+      <p class="tagline">Search, discover, or create &mdash; music matched to you.</p>
+
+      <div class="home-search" style="max-width:500px;margin:1.5rem auto">
+        <div style="display:flex;gap:0.5rem">
+          <input type="text" id="home-search-input" placeholder="Search any song or artist..." class="filter-input" style="flex:1;padding:0.75rem 1rem;font-size:1rem">
+          <a href="/check" data-link class="cta-primary" style="white-space:nowrap">Check a Song</a>
+        </div>
+      </div>
+
+      <div class="home-categories" style="margin-top:2rem">
+        <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:0.75rem">What are you looking for?</p>
+        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;justify-content:center">
+          <a href="/library?recommended_for=sleep" data-link class="home-cat-btn">Sleep</a>
+          <a href="/library?recommended_for=focus" data-link class="home-cat-btn">Focus &amp; Study</a>
+          <a href="/library?recommended_for=anxiety+relief" data-link class="home-cat-btn">Anxiety Relief</a>
+          <a href="/library?sensory_level=safe" data-link class="home-cat-btn" style="border-color:var(--safe)">Sensory Safe</a>
+          <a href="/library?recommended_for=energy" data-link class="home-cat-btn">Workout &amp; Energy</a>
+          <a href="/library?recommended_for=meditation" data-link class="home-cat-btn">Meditation</a>
+          <a href="/finder" data-link class="home-cat-btn">Match My Mood</a>
+          <a href="/make" data-link class="home-cat-btn" style="border-color:var(--moderate)">Create My Own</a>
+          <a href="/profile" data-link class="home-cat-btn">Build My Profile</a>
+          <a href="/library" data-link class="home-cat-btn">Browse All</a>
+        </div>
       </div>
     </section>
     <h2>Recently Added</h2>
@@ -201,6 +218,16 @@ async function renderHome() {
   const songs = await api('/api/songs');
   document.getElementById('recent-songs').innerHTML = songs.slice(0, 12).map(s => songCard(s)).join('');
   bindCardButtons();
+
+  // Home search — navigates to library with search query
+  const homeInput = document.getElementById('home-search-input');
+  if (homeInput) {
+    homeInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && homeInput.value.trim()) {
+        navigate('/library?search=' + encodeURIComponent(homeInput.value.trim()));
+      }
+    });
+  }
   updateSidebarStats();
 }
 
