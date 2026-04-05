@@ -108,6 +108,12 @@ db.exec(`
 // Migration: add source column if it doesn't exist
 try { db.exec(`ALTER TABLE songs ADD COLUMN source TEXT DEFAULT 'curated'`); } catch (e) { /* column already exists */ }
 
+// Migration: add misophonia trigger columns
+try { db.exec(`ALTER TABLE songs ADD COLUMN miso_mouth TEXT DEFAULT 'unknown'`); } catch (e) {}
+try { db.exec(`ALTER TABLE songs ADD COLUMN miso_clicks TEXT DEFAULT 'unknown'`); } catch (e) {}
+try { db.exec(`ALTER TABLE songs ADD COLUMN miso_breathing TEXT DEFAULT 'unknown'`); } catch (e) {}
+try { db.exec(`ALTER TABLE songs ADD COLUMN miso_repetitive TEXT DEFAULT 'unknown'`); } catch (e) {}
+
 // Rate limiting store for song checker
 const checkLimits = new Map();
 function checkRateLimit(ip) {
@@ -400,12 +406,20 @@ fetch('/api/playlists/load/${req.params.token}')
 
 // Get all songs with filters
 app.get('/api/songs', (req, res) => {
-  const { sensory_level, mood, tradition, recommended_for, search, sort } = req.query;
+  const { sensory_level, mood, tradition, recommended_for, search, sort, miso_safe } = req.query;
 
   let query = 'SELECT DISTINCT s.* FROM songs s';
   const joins = [];
   const conditions = [];
   const params = [];
+
+  // Misophonia-safe filter: only songs where all miso triggers are 'none'
+  if (miso_safe === 'true') {
+    conditions.push("(s.miso_mouth = 'none' OR s.miso_mouth = 'unknown')");
+    conditions.push("(s.miso_clicks = 'none' OR s.miso_clicks = 'unknown')");
+    conditions.push("(s.miso_breathing = 'none' OR s.miso_breathing = 'unknown')");
+    conditions.push("(s.miso_repetitive = 'none' OR s.miso_repetitive = 'unknown')");
+  }
 
   if (mood) {
     joins.push('JOIN song_moods sm ON s.id = sm.song_id');
@@ -630,10 +644,15 @@ app.post('/api/check', async (req, res) => {
   "sensory_notes": "1-2 sentence sensory description",
   "bpm": estimated_bpm_number,
   "description": "1 sentence song description",
+  "miso_mouth": "none" | "mild" | "present",
+  "miso_clicks": "none" | "mild" | "present",
+  "miso_breathing": "none" | "mild" | "present",
+  "miso_repetitive": "none" | "mild" | "present",
   "moods": ["mood1", "mood2"],
   "traditions": ["genre1"],
   "recommended_for": ["use_case1"]
 }
+Misophonia fields: miso_mouth = lip sounds, tongue clicks, saliva. miso_clicks = hi-hat ticks, rimshots, snaps. miso_breathing = audible breaths between phrases. miso_repetitive = pick scratches, vinyl crackle, tape hiss.
 Valid moods: calm, contemplative, warm, joyful, melancholy, energetic, spacious, intimate, transcendent, heavy, cathartic, nostalgic, playful, dreamy, serene, uplifting, emotional, reflective, introspective, romantic, confident, rebellious, aggressive, intense
 Valid recommended_for: sleep, focus, anxiety relief, meltdown recovery, deep listening, meditation, movement, energy, emotional release, study, relaxation, workout, yoga`
         }, {
@@ -652,15 +671,17 @@ Valid recommended_for: sleep, focus, anxiety relief, meltdown recovery, deep lis
 
     // Save to database
     const insertSong = db.prepare(`
-      INSERT OR IGNORE INTO songs (title, artist, album, year, slug, sensory_level, dynamic_range, sudden_changes, texture, predictability, vocal_style, sensory_notes, bpm, description, source)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ai-checked')
+      INSERT OR IGNORE INTO songs (title, artist, album, year, slug, sensory_level, dynamic_range, sudden_changes, texture, predictability, vocal_style, sensory_notes, bpm, description, source, miso_mouth, miso_clicks, miso_breathing, miso_repetitive)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ai-checked', ?, ?, ?, ?)
     `);
 
     const result = insertSong.run(
       analysis.title, analysis.artist, analysis.album || '', analysis.year,
       slug, analysis.sensory_level, analysis.dynamic_range, analysis.sudden_changes,
       analysis.texture, analysis.predictability, analysis.vocal_style,
-      analysis.sensory_notes || '', analysis.bpm, analysis.description || ''
+      analysis.sensory_notes || '', analysis.bpm, analysis.description || '',
+      analysis.miso_mouth || 'unknown', analysis.miso_clicks || 'unknown',
+      analysis.miso_breathing || 'unknown', analysis.miso_repetitive || 'unknown'
     );
 
     const songId = result.lastInsertRowid || db.prepare('SELECT id FROM songs WHERE slug = ?').get(slug)?.id;
@@ -1080,6 +1101,15 @@ function renderSongPage(song, isChecker) {
           <div class="rating-row"><span class="rating-label">Vocal Style</span><span class="rating-value">${song.vocal_style}</span></div>
           ${song.sensory_notes ? `<div class="sensory-notes"><strong>Notes:</strong> ${esc(song.sensory_notes)}</div>` : ''}
         </div>
+
+        ${(song.miso_mouth && song.miso_mouth !== 'unknown') || (song.miso_clicks && song.miso_clicks !== 'unknown') || (song.miso_breathing && song.miso_breathing !== 'unknown') || (song.miso_repetitive && song.miso_repetitive !== 'unknown') ? `
+        <div class="sensory-card" style="margin-top:1rem;border:1px solid rgba(212,149,106,0.15)">
+          <h3 style="color:var(--accent);margin:0 0 0.75rem 0;font-size:0.9rem">Misophonia Triggers</h3>
+          ${song.miso_mouth !== 'unknown' ? `<div class="rating-row"><span class="rating-label">Mouth Sounds</span><span class="rating-value ${song.miso_mouth === 'none' ? 'badge-safe' : 'badge-intense'}">${song.miso_mouth}</span></div>` : ''}
+          ${song.miso_clicks !== 'unknown' ? `<div class="rating-row"><span class="rating-label">Percussive Clicks</span><span class="rating-value ${song.miso_clicks === 'none' ? 'badge-safe' : 'badge-intense'}">${song.miso_clicks}</span></div>` : ''}
+          ${song.miso_breathing !== 'unknown' ? `<div class="rating-row"><span class="rating-label">Breathing Sounds</span><span class="rating-value ${song.miso_breathing === 'none' ? 'badge-safe' : 'badge-intense'}">${song.miso_breathing}</span></div>` : ''}
+          ${song.miso_repetitive !== 'unknown' ? `<div class="rating-row"><span class="rating-label">Repetitive Micro-sounds</span><span class="rating-value ${song.miso_repetitive === 'none' ? 'badge-safe' : 'badge-intense'}">${song.miso_repetitive}</span></div>` : ''}
+        </div>` : ''}
 
         ${song.recommended_for && song.recommended_for.length ? `<div class="recommended-for"><strong>Recommended for:</strong> ${song.recommended_for.map(r => `<span class="rec-tag">${esc(r)}</span>`).join(' ')}</div>` : ''}
 

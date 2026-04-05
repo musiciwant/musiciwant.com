@@ -266,6 +266,14 @@ async function renderSong(slug) {
       <div class="rating-row"><span class="rating-label">Vocal Style</span><span class="rating-value">${s.vocal_style}</span></div>
       ${s.sensory_notes ? `<div class="sensory-notes"><strong>Notes:</strong> ${s.sensory_notes}</div>` : ''}
     </div>
+    ${(s.miso_mouth && s.miso_mouth !== 'unknown') || (s.miso_clicks && s.miso_clicks !== 'unknown') ? `
+    <div class="sensory-card" style="margin-top:1rem;border:1px solid rgba(212,149,106,0.15)">
+      <h3 style="color:var(--accent);margin:0 0 0.75rem 0;font-size:0.9rem">Misophonia Triggers</h3>
+      ${s.miso_mouth && s.miso_mouth !== 'unknown' ? `<div class="rating-row"><span class="rating-label">Mouth Sounds</span><span class="rating-value ${s.miso_mouth === 'none' ? 'badge-safe' : 'badge-intense'}">${s.miso_mouth}</span></div>` : ''}
+      ${s.miso_clicks && s.miso_clicks !== 'unknown' ? `<div class="rating-row"><span class="rating-label">Percussive Clicks</span><span class="rating-value ${s.miso_clicks === 'none' ? 'badge-safe' : 'badge-intense'}">${s.miso_clicks}</span></div>` : ''}
+      ${s.miso_breathing && s.miso_breathing !== 'unknown' ? `<div class="rating-row"><span class="rating-label">Breathing Sounds</span><span class="rating-value ${s.miso_breathing === 'none' ? 'badge-safe' : 'badge-intense'}">${s.miso_breathing}</span></div>` : ''}
+      ${s.miso_repetitive && s.miso_repetitive !== 'unknown' ? `<div class="rating-row"><span class="rating-label">Repetitive Micro-sounds</span><span class="rating-value ${s.miso_repetitive === 'none' ? 'badge-safe' : 'badge-intense'}">${s.miso_repetitive}</span></div>` : ''}
+    </div>` : ''}
     ${s.recommended_for?.length ? `<div class="recommended-for">${s.recommended_for.map(r => `<span class="rec-tag">${r}</span>`).join('')}</div>` : ''}
     ${s.spotify_id ? `<div class="embed-container"><iframe src="https://open.spotify.com/embed/track/${s.spotify_id}?theme=0" height="152" allow="encrypted-media" loading="lazy"></iframe></div>` : ''}
     ${s.youtube_id ? `<div class="embed-container"><iframe src="https://www.youtube.com/embed/${s.youtube_id}" height="315" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe></div>` : ''}
