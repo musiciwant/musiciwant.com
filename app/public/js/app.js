@@ -99,6 +99,7 @@ function route() {
   else if (p === '/make') renderMakeMusic();
   else if (p === '/about') renderAbout();
   else if (p === '/check') renderChecker();
+  else if (p === '/profile') renderProfile();
   else if (p.startsWith('/check/')) renderSong(p.replace('/check/', ''));
   else if (p.startsWith('/song/')) renderSong(p.replace('/song/', ''));
   else renderHome();
@@ -663,6 +664,107 @@ function renderAbout() {
     <h2>Who Built This</h2>
     <p>Built by <a href="https://linkedin.com/in/build-ai-for-good" rel="noopener" target="_blank">The Architect</a>, University of Delaware alum building AI tools that do genuine good. A project of The Hive.</p>
   </div>`;
+}
+
+// --- My Sensory Profile ---
+function getProfile() { try { return JSON.parse(localStorage.getItem('miw_sensory_profile')) || null; } catch { return null; } }
+
+function renderProfile() {
+  const existing = getProfile();
+
+  if (existing) {
+    // Show existing profile with option to retake
+    const levelLabel = { low: 'Low sensitivity', medium: 'Medium sensitivity', high: 'High sensitivity' };
+    const triggers = existing.triggers || [];
+    app.innerHTML = `
+      <div style="max-width:640px;margin:0 auto">
+        <h1>Your Sensory Profile</h1>
+        <div class="sensory-card" style="margin-bottom:1.5rem">
+          <h2 style="margin-top:0">${levelLabel[existing.level] || existing.level}</h2>
+          <p style="color:var(--text-muted)">${existing.level === 'high' ? 'You are highly sensitive to sound. We recommend starting with Safe-rated songs only.' : existing.level === 'medium' ? 'You have moderate sound sensitivity. Safe and some Moderate songs should work well.' : 'You have lower sound sensitivity. Most songs should be comfortable, but check Intense songs before playing.'}</p>
+          ${triggers.length ? `<div style="margin-top:1rem"><strong>Your triggers:</strong><div style="margin-top:0.5rem">${triggers.map(t => `<span class="rec-tag">${t}</span>`).join(' ')}</div></div>` : ''}
+          ${existing.preferences ? `<div style="margin-top:1rem"><strong>You prefer:</strong> ${existing.preferences.join(', ')}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:1rem;flex-wrap:wrap">
+          <a href="/library${existing.level === 'high' ? '?sensory_level=safe' : ''}" data-link class="cta-primary">Browse Music For You</a>
+          <a href="/check" data-link class="cta-secondary">Check a Song</a>
+          <button id="retake-profile" class="cta-secondary">Retake Quiz</button>
+        </div>
+      </div>`;
+    document.getElementById('retake-profile')?.addEventListener('click', () => { localStorage.removeItem('miw_sensory_profile'); renderProfile(); });
+    return;
+  }
+
+  // Quiz
+  const questions = [
+    { id: 'cymbal', q: 'How do you react to sudden cymbal crashes?', opts: [['Fine', 0], ['Noticeable', 1], ['Uncomfortable', 2], ['Painful', 3]] },
+    { id: 'volume', q: 'How do you handle sudden volume changes in music?', opts: [['No issue', 0], ['Slightly jarring', 1], ['Very disruptive', 2], ['Triggering', 3]] },
+    { id: 'screaming', q: 'How do you feel about screamed or shouted vocals?', opts: [['Enjoy them', 0], ['Tolerate them', 1], ['Avoid them', 2], ['Cannot handle them', 3]] },
+    { id: 'bass', q: 'How do bass drops or heavy sub-bass affect you?', opts: [['Love them', 0], ['Neutral', 1], ['Uncomfortable', 2], ['Overwhelming', 3]] },
+    { id: 'unpredictable', q: 'How do you feel about music you can\'t predict?', opts: [['Exciting', 0], ['Interesting', 1], ['Stressful', 2], ['Unbearable', 3]] },
+    { id: 'mouth', q: 'Do mouth sounds in music bother you? (breathing, lip sounds)', opts: [['Not at all', 0], ['Slightly', 1], ['Significantly', 2], ['Intensely — this is a major trigger', 3]] },
+    { id: 'texture', q: 'How do you react to harsh, distorted, or abrasive sounds?', opts: [['Enjoy the intensity', 0], ['Can tolerate briefly', 1], ['Avoid them', 2], ['Physical discomfort', 3]] },
+    { id: 'environment', q: 'How sensitive are you to environmental noise? (offices, restaurants)', opts: [['Not very', 0], ['Somewhat', 1], ['Very — I often need quiet', 2], ['Extremely — I use earplugs or headphones daily', 3]] },
+  ];
+
+  let step = 0;
+  const answers = {};
+
+  function renderStep() {
+    if (step >= questions.length) {
+      // Calculate profile
+      const scores = Object.values(answers);
+      const total = scores.reduce((a, b) => a + b, 0);
+      const max = questions.length * 3;
+      const pct = total / max;
+
+      const level = pct >= 0.6 ? 'high' : pct >= 0.3 ? 'medium' : 'low';
+      const triggers = [];
+      if (answers.cymbal >= 2) triggers.push('sudden percussion');
+      if (answers.volume >= 2) triggers.push('volume changes');
+      if (answers.screaming >= 2) triggers.push('screamed vocals');
+      if (answers.bass >= 2) triggers.push('heavy bass');
+      if (answers.unpredictable >= 2) triggers.push('unpredictability');
+      if (answers.mouth >= 2) triggers.push('mouth sounds');
+      if (answers.texture >= 2) triggers.push('harsh textures');
+      if (answers.environment >= 2) triggers.push('environmental noise');
+
+      const preferences = [];
+      if (answers.screaming >= 2) preferences.push('instrumental');
+      if (answers.texture >= 2) preferences.push('smooth texture');
+      if (answers.unpredictable >= 1) preferences.push('high predictability');
+      if (answers.volume >= 2) preferences.push('low dynamic range');
+
+      const profile = { level, triggers, preferences, created: new Date().toISOString() };
+      localStorage.setItem('miw_sensory_profile', JSON.stringify(profile));
+      renderProfile();
+      return;
+    }
+
+    const q = questions[step];
+    app.innerHTML = `
+      <div style="max-width:640px;margin:0 auto">
+        <h1>My Sensory Profile</h1>
+        <p style="color:var(--text-dim);font-size:0.85rem">Question ${step + 1} of ${questions.length}</p>
+        <div style="background:var(--bg-hover);height:4px;border-radius:2px;margin-bottom:2rem">
+          <div style="background:var(--accent);height:100%;border-radius:2px;width:${((step) / questions.length) * 100}%;transition:width 0.3s"></div>
+        </div>
+        <h2 style="font-size:1.2rem;margin-bottom:1.5rem">${q.q}</h2>
+        <div style="display:flex;flex-direction:column;gap:0.75rem">
+          ${q.opts.map(([label, val]) => `<button class="profile-opt finder-btn" data-val="${val}" style="text-align:left;padding:1rem;font-size:1rem">${label}</button>`).join('')}
+        </div>
+        ${step > 0 ? `<button id="profile-back" style="margin-top:1.5rem;background:none;border:none;color:var(--accent);cursor:pointer;font-size:0.9rem">&larr; Previous</button>` : ''}
+      </div>`;
+
+    document.querySelectorAll('.profile-opt').forEach(b => b.addEventListener('click', () => {
+      answers[q.id] = parseInt(b.dataset.val);
+      step++;
+      renderStep();
+    }));
+    document.getElementById('profile-back')?.addEventListener('click', () => { step--; renderStep(); });
+  }
+
+  renderStep();
 }
 
 // --- Song Checker: "Is This Song Safe?" ---
