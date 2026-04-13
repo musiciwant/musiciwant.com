@@ -101,7 +101,7 @@ function route() {
   else if (p === '/check') renderChecker();
   else if (p === '/profile') renderProfile();
   else if (p.startsWith('/check/')) renderSong(p.replace('/check/', ''));
-  else if (p.startsWith('/artist/')) renderArtist(decodeURIComponent(p.replace('/artist/', '')));
+  else if (p.startsWith('/artist/')) renderArtist(p.replace('/artist/', ''));
   else if (p.startsWith('/song/')) renderSong(p.replace('/song/', ''));
   else renderHome();
   updateSidebarPlaylists();
@@ -346,7 +346,7 @@ async function renderSong(slug) {
     <div id="stories-container" style="margin-top:1.5rem"></div>
 
     <div style="margin-top:1.5rem">
-      <a href="/artist/${encodeURIComponent(s.artist)}" data-link style="color:var(--accent)">&larr; All ${s.artist} songs</a>
+      <a href="/artist/${s.artist.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}" data-link style="color:var(--accent)">&larr; All ${s.artist} songs</a>
       &nbsp;&nbsp;
       <a href="/check" data-link style="color:var(--accent)">Check another song &rarr;</a>
     </div>

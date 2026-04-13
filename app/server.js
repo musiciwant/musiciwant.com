@@ -930,7 +930,8 @@ app.post('/api/stories', (req, res) => {
 // --- Artist Pages ---
 
 app.get('/api/artist/:name', (req, res) => {
-  const artistName = decodeURIComponent(req.params.name);
+  const rawName = decodeURIComponent(req.params.name);
+  const artistName = rawName.includes('-') ? rawName.replace(/-/g, ' ') : rawName;
   const songs = db.prepare(
     'SELECT * FROM songs WHERE LOWER(artist) LIKE ? ORDER BY year ASC, title ASC'
   ).all(`%${artistName.toLowerCase()}%`);
@@ -1128,7 +1129,9 @@ app.get('/check/:slug', (req, res) => {
 
 // Artist page — server-rendered for SEO
 app.get('/artist/:name', (req, res) => {
-  const artistName = decodeURIComponent(req.params.name);
+  const rawName = decodeURIComponent(req.params.name);
+  // Support both slug format (pearl-jam) and original format (Pearl Jam)
+  const artistName = rawName.includes('-') ? rawName.replace(/-/g, ' ') : rawName;
   const songs = db.prepare('SELECT * FROM songs WHERE LOWER(artist) LIKE ? ORDER BY year ASC, title ASC')
     .all(`%${artistName.toLowerCase()}%`);
   if (songs.length === 0) return res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -1195,7 +1198,7 @@ app.get('/artist/:name', (req, res) => {
   res.send(`${headHTML(
     `${esc(name)} — Every Song Decoded | Music I Want`,
     `${personality} ${songs.length} songs analyzed for intensity, texture, and emotional arc.`,
-    `https://musiciwant.com/artist/${encodeURIComponent(name)}`
+    `https://musiciwant.com/artist/${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`
   )}
   <body>
     ${sidebarHTML()}
@@ -1500,7 +1503,7 @@ function renderSongPage(song, isChecker) {
         ${renderFanStoriesSection(song.slug)}
 
         <div style="margin-top:2rem">
-          <a href="/artist/${encodeURIComponent(song.artist)}" style="color:var(--accent)">&larr; All ${esc(song.artist)} songs</a>
+          <a href="/artist/${song.artist.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}" style="color:var(--accent)">&larr; All ${esc(song.artist)} songs</a>
           &nbsp;&nbsp;
           <a href="/check" style="color:var(--accent)">Check another song &rarr;</a>
         </div>
