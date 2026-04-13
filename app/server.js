@@ -132,6 +132,21 @@ try { db.exec(`ALTER TABLE songs ADD COLUMN miso_clicks TEXT DEFAULT 'unknown'`)
 try { db.exec(`ALTER TABLE songs ADD COLUMN miso_breathing TEXT DEFAULT 'unknown'`); } catch (e) {}
 try { db.exec(`ALTER TABLE songs ADD COLUMN miso_repetitive TEXT DEFAULT 'unknown'`); } catch (e) {}
 
+// Fan stories table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS fan_stories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    song_slug TEXT NOT NULL,
+    name TEXT NOT NULL,
+    city TEXT DEFAULT '',
+    story TEXT NOT NULL,
+    lyric TEXT DEFAULT '',
+    approved INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_fan_stories_slug ON fan_stories(song_slug);
+`);
+
 // Rate limiting store for song checker
 const checkLimits = new Map();
 function checkRateLimit(ip) {
@@ -879,6 +894,85 @@ app.get('/api/songs/:slug/alternatives', (req, res) => {
   res.json(top);
 });
 
+// --- Fan Stories ---
+
+// Get stories for a song
+app.get('/api/stories/:slug', (req, res) => {
+  const stories = db.prepare(
+    'SELECT id, name, city, story, lyric, created_at FROM fan_stories WHERE song_slug = ? AND approved = 1 ORDER BY created_at DESC LIMIT 50'
+  ).all(req.params.slug);
+  res.json(stories);
+});
+
+// Submit a story
+const storyLimits = new Map();
+app.post('/api/stories', (req, res) => {
+  const { song_slug, name, city, story, lyric } = req.body;
+  if (!song_slug || !name || !story) return res.status(400).json({ error: 'Name and story required' });
+  if (story.length > 1000) return res.status(400).json({ error: 'Story must be under 1000 characters' });
+  if (story.length < 10) return res.status(400).json({ error: 'Tell us a little more' });
+
+  // Rate limit: 5 stories per IP per hour
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const entry = storyLimits.get(ip);
+  if (entry && now < entry.reset && entry.count >= 5) return res.status(429).json({ error: 'Too many stories. Try again later.' });
+  if (!entry || now > (entry?.reset || 0)) storyLimits.set(ip, { count: 1, reset: now + 3600000 });
+  else entry.count++;
+
+  db.prepare(
+    'INSERT INTO fan_stories (song_slug, name, city, story, lyric) VALUES (?, ?, ?, ?, ?)'
+  ).run(song_slug, name.slice(0, 50), (city || '').slice(0, 50), story.slice(0, 1000), (lyric || '').slice(0, 200));
+
+  res.json({ ok: true });
+});
+
+// --- Artist Pages ---
+
+app.get('/api/artist/:name', (req, res) => {
+  const artistName = decodeURIComponent(req.params.name);
+  const songs = db.prepare(
+    'SELECT * FROM songs WHERE LOWER(artist) LIKE ? ORDER BY year ASC, title ASC'
+  ).all(`%${artistName.toLowerCase()}%`);
+
+  if (songs.length === 0) return res.status(404).json({ error: 'No songs found for this artist' });
+
+  const moodStmt = db.prepare('SELECT mood FROM song_moods WHERE song_id = ?');
+  const tradStmt = db.prepare('SELECT tradition FROM song_traditions WHERE song_id = ?');
+  const recStmt = db.prepare('SELECT use_case FROM song_recommended_for WHERE song_id = ?');
+
+  for (const song of songs) {
+    song.moods = moodStmt.all(song.id).map(r => r.mood);
+    song.traditions = tradStmt.all(song.id).map(r => r.tradition);
+    song.recommended_for = recStmt.all(song.id).map(r => r.use_case);
+  }
+
+  // Compute artist stats
+  const levels = { safe: 0, moderate: 0, intense: 0 };
+  let totalDR = 0;
+  for (const s of songs) { levels[s.sensory_level]++; totalDR += s.dynamic_range; }
+
+  res.json({
+    artist: songs[0].artist,
+    song_count: songs.length,
+    levels,
+    avg_dynamic_range: Math.round((totalDR / songs.length) * 10) / 10,
+    songs
+  });
+});
+
+// Get all artists (for browse)
+app.get('/api/artists', (req, res) => {
+  const artists = db.prepare(`
+    SELECT artist, COUNT(*) as song_count,
+      SUM(CASE WHEN sensory_level = 'safe' THEN 1 ELSE 0 END) as safe_count,
+      SUM(CASE WHEN sensory_level = 'moderate' THEN 1 ELSE 0 END) as moderate_count,
+      SUM(CASE WHEN sensory_level = 'intense' THEN 1 ELSE 0 END) as intense_count
+    FROM songs GROUP BY artist HAVING song_count >= 3 ORDER BY song_count DESC
+  `).all();
+  res.json(artists);
+});
+
 // --- Guide Articles (server-rendered for SEO) ---
 
 db.exec(`
@@ -1032,6 +1126,86 @@ app.get('/check/:slug', (req, res) => {
   res.send(renderSongPage(song, true));
 });
 
+// Artist page — server-rendered for SEO
+app.get('/artist/:name', (req, res) => {
+  const artistName = decodeURIComponent(req.params.name);
+  const songs = db.prepare('SELECT * FROM songs WHERE LOWER(artist) LIKE ? ORDER BY year ASC, title ASC')
+    .all(`%${artistName.toLowerCase()}%`);
+  if (songs.length === 0) return res.sendFile(path.join(__dirname, 'public', 'index.html'));
+
+  const moodStmt = db.prepare('SELECT mood FROM song_moods WHERE song_id = ?');
+  for (const s of songs) s.moods = moodStmt.all(s.id).map(r => r.mood);
+
+  const levels = { safe: 0, moderate: 0, intense: 0 };
+  let totalDR = 0;
+  for (const s of songs) { levels[s.sensory_level]++; totalDR += s.dynamic_range; }
+  const avgDR = Math.round((totalDR / songs.length) * 10) / 10;
+  const name = songs[0].artist;
+
+  const songRows = songs.map(s => {
+    const sl = s.sensory_level === 'safe' ? 'badge-safe' : s.sensory_level === 'moderate' ? 'badge-moderate' : 'badge-intense';
+    return `<a href="/song/${s.slug}" style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem;background:var(--bg-card);border-radius:var(--radius-sm);text-decoration:none;color:var(--text)">
+      <div>
+        <strong>${esc(s.title)}</strong>
+        ${s.year ? `<span style="color:var(--text-dim);font-size:0.8rem;margin-left:0.5rem">${s.year}</span>` : ''}
+      </div>
+      <div style="display:flex;gap:0.5rem;align-items:center">
+        <span style="color:var(--text-dim);font-size:0.8rem">DR ${s.dynamic_range}</span>
+        <span class="badge ${sl}" style="font-size:0.7rem">${s.sensory_level}</span>
+      </div>
+    </a>`;
+  }).join('');
+
+  res.send(`${headHTML(
+    `${esc(name)} — Sensory Profile & Song Analysis | Music I Want`,
+    `Every ${esc(name)} song analyzed for intensity, texture, and emotional arc. ${songs.length} songs rated.`,
+    `https://musiciwant.com/artist/${encodeURIComponent(name)}`
+  )}
+  <body>
+    ${sidebarHTML()}
+    <main class="main-content">
+      <div id="app">
+        <div style="max-width:720px;margin:0 auto">
+          <h1>${esc(name)}</h1>
+          <p style="color:var(--text-muted)">${songs.length} songs analyzed</p>
+
+          <div style="display:flex;gap:1rem;margin:1.5rem 0;flex-wrap:wrap">
+            <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:120px;text-align:center">
+              <div style="font-size:1.5rem;font-weight:700;color:var(--accent)">${avgDR}</div>
+              <div style="font-size:0.75rem;color:var(--text-dim)">Avg Dynamic Range</div>
+            </div>
+            <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:120px;text-align:center">
+              <div style="font-size:1.5rem;font-weight:700;color:var(--safe)">${levels.safe}</div>
+              <div style="font-size:0.75rem;color:var(--text-dim)">Safe</div>
+            </div>
+            <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:120px;text-align:center">
+              <div style="font-size:1.5rem;font-weight:700;color:var(--moderate)">${levels.moderate}</div>
+              <div style="font-size:0.75rem;color:var(--text-dim)">Moderate</div>
+            </div>
+            <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:120px;text-align:center">
+              <div style="font-size:1.5rem;font-weight:700;color:var(--intense)">${levels.intense}</div>
+              <div style="font-size:0.75rem;color:var(--text-dim)">Intense</div>
+            </div>
+          </div>
+
+          <h2>Every Song, Decoded</h2>
+          <div style="display:flex;flex-direction:column;gap:0.5rem">
+            ${songRows}
+          </div>
+
+          <div style="margin-top:2rem">
+            <a href="/library" style="color:var(--accent)">&larr; Back to Library</a>
+            &nbsp;&nbsp;
+            <a href="/check" style="color:var(--accent)">Check another song &rarr;</a>
+          </div>
+        </div>
+      </div>
+      ${footerHTML()}
+    </main>
+    <script src="/js/app.js"></script>
+  </body></html>`);
+});
+
 // All other routes — serve SPA
 app.use((req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -1081,6 +1255,57 @@ function footerHTML() {
 }
 
 function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+function renderFanStoriesSection(slug) {
+  const stories = db.prepare(
+    'SELECT name, city, story, lyric, created_at FROM fan_stories WHERE song_slug = ? AND approved = 1 ORDER BY created_at DESC LIMIT 10'
+  ).all(slug);
+
+  const storyCards = stories.map(s => {
+    const location = s.city ? ` &mdash; ${esc(s.city)}` : '';
+    return `<div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);border-left:3px solid var(--accent)">
+      ${s.lyric ? `<p style="font-style:italic;color:var(--accent);font-size:0.85rem;margin:0 0 0.5rem 0">"${esc(s.lyric)}"</p>` : ''}
+      <p style="color:var(--text);font-size:0.9rem;margin:0 0 0.5rem 0">${esc(s.story)}</p>
+      <p style="color:var(--text-dim);font-size:0.75rem;margin:0"><strong>${esc(s.name)}</strong>${location}</p>
+    </div>`;
+  }).join('');
+
+  return `<div style="margin-top:2rem">
+    <h3 style="color:var(--accent);font-size:1rem;margin-bottom:0.5rem">What this song means to people</h3>
+    ${stories.length > 0 ? `<div style="display:flex;flex-direction:column;gap:0.75rem;margin-bottom:1.5rem">${storyCards}</div>` : `<p style="color:var(--text-dim);font-size:0.85rem">No stories yet. Be the first.</p>`}
+    <details style="margin-top:1rem">
+      <summary style="color:var(--accent);cursor:pointer;font-size:0.9rem">Share what this song means to you</summary>
+      <form id="story-form" style="margin-top:1rem;display:flex;flex-direction:column;gap:0.75rem" onsubmit="return submitStory(event, '${slug}')">
+        <input type="text" name="name" placeholder="Your first name" required maxlength="50" class="filter-input" style="padding:0.6rem">
+        <input type="text" name="city" placeholder="City (optional)" maxlength="50" class="filter-input" style="padding:0.6rem">
+        <input type="text" name="lyric" placeholder="Your favorite lyric from this song (optional)" maxlength="200" class="filter-input" style="padding:0.6rem">
+        <textarea name="story" placeholder="What does this song mean to you? When did you first hear it? What memory lives inside it?" required maxlength="1000" rows="3" class="filter-input" style="padding:0.6rem;resize:vertical"></textarea>
+        <button type="submit" class="cta-primary" style="align-self:flex-start">Share My Story</button>
+      </form>
+    </details>
+  </div>
+  <script>
+  function submitStory(e, slug) {
+    e.preventDefault();
+    const f = e.target;
+    fetch('/api/stories', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        song_slug: slug,
+        name: f.name.value,
+        city: f.city.value,
+        story: f.story.value,
+        lyric: f.lyric.value
+      })
+    }).then(r => r.json()).then(d => {
+      if (d.ok) { f.innerHTML = '<p style="color:var(--safe)">Thank you. Your story is now part of this song.</p>'; }
+      else { alert(d.error || 'Something went wrong'); }
+    });
+    return false;
+  }
+  </script>`;
+}
 
 function renderAlternativesSection(song) {
   if (song.sensory_level === 'safe') return '';
@@ -1219,8 +1444,10 @@ function renderSongPage(song, isChecker) {
 
         ${renderAlternativesSection(song)}
 
+        ${renderFanStoriesSection(song.slug)}
+
         <div style="margin-top:2rem">
-          <a href="/library" style="color:var(--accent)">&larr; Back to Library</a>
+          <a href="/artist/${encodeURIComponent(song.artist)}" style="color:var(--accent)">&larr; All ${esc(song.artist)} songs</a>
           &nbsp;&nbsp;
           <a href="/check" style="color:var(--accent)">Check another song &rarr;</a>
         </div>

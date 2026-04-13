@@ -101,6 +101,7 @@ function route() {
   else if (p === '/check') renderChecker();
   else if (p === '/profile') renderProfile();
   else if (p.startsWith('/check/')) renderSong(p.replace('/check/', ''));
+  else if (p.startsWith('/artist/')) renderArtist(decodeURIComponent(p.replace('/artist/', '')));
   else if (p.startsWith('/song/')) renderSong(p.replace('/song/', ''));
   else renderHome();
   updateSidebarPlaylists();
@@ -342,9 +343,10 @@ async function renderSong(slug) {
     </div>
 
     <div id="alternatives-container"></div>
+    <div id="stories-container" style="margin-top:1.5rem"></div>
 
     <div style="margin-top:1.5rem">
-      <a href="/library" data-link style="color:var(--accent)">&larr; Back to Library</a>
+      <a href="/artist/${encodeURIComponent(s.artist)}" data-link style="color:var(--accent)">&larr; All ${s.artist} songs</a>
       &nbsp;&nbsp;
       <a href="/check" data-link style="color:var(--accent)">Check another song &rarr;</a>
     </div>
@@ -374,6 +376,98 @@ async function renderSong(slug) {
       }
     } catch (e) { /* alternatives are non-critical */ }
   }
+
+  // Load fan stories
+  try {
+    const stories = await api('/api/stories/' + slug);
+    const container = document.getElementById('stories-container');
+    if (container) {
+      const storyCards = stories.map(st => {
+        const loc = st.city ? ` &mdash; ${st.city}` : '';
+        return `<div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);border-left:3px solid var(--accent)">
+          ${st.lyric ? `<p style="font-style:italic;color:var(--accent);font-size:0.85rem;margin:0 0 0.5rem 0">"${st.lyric}"</p>` : ''}
+          <p style="color:var(--text);font-size:0.9rem;margin:0 0 0.5rem 0">${st.story}</p>
+          <p style="color:var(--text-dim);font-size:0.75rem;margin:0"><strong>${st.name}</strong>${loc}</p>
+        </div>`;
+      }).join('');
+      container.innerHTML = `
+        <h3 style="color:var(--accent);font-size:1rem;margin-bottom:0.5rem">What this song means to people</h3>
+        ${stories.length > 0 ? `<div style="display:flex;flex-direction:column;gap:0.75rem;margin-bottom:1rem">${storyCards}</div>` : `<p style="color:var(--text-dim);font-size:0.85rem">No stories yet. Be the first.</p>`}
+        <details style="margin-top:0.75rem">
+          <summary style="color:var(--accent);cursor:pointer;font-size:0.9rem">Share what this song means to you</summary>
+          <div style="margin-top:1rem;display:flex;flex-direction:column;gap:0.75rem" id="story-form-wrap">
+            <input type="text" id="sf-name" placeholder="Your first name" maxlength="50" class="filter-input" style="padding:0.6rem">
+            <input type="text" id="sf-city" placeholder="City (optional)" maxlength="50" class="filter-input" style="padding:0.6rem">
+            <input type="text" id="sf-lyric" placeholder="Your favorite lyric from this song (optional)" maxlength="200" class="filter-input" style="padding:0.6rem">
+            <textarea id="sf-story" placeholder="What does this song mean to you?" maxlength="1000" rows="3" class="filter-input" style="padding:0.6rem;resize:vertical"></textarea>
+            <button class="cta-primary" style="align-self:flex-start" id="sf-submit">Share My Story</button>
+          </div>
+        </details>`;
+      document.getElementById('sf-submit')?.addEventListener('click', async () => {
+        const name = document.getElementById('sf-name').value.trim();
+        const story = document.getElementById('sf-story').value.trim();
+        if (!name || !story) return;
+        const res = await fetch('/api/stories', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ song_slug: slug, name, city: document.getElementById('sf-city').value.trim(), story, lyric: document.getElementById('sf-lyric').value.trim() })
+        });
+        const d = await res.json();
+        if (d.ok) document.getElementById('story-form-wrap').innerHTML = '<p style="color:var(--safe)">Thank you. Your story is now part of this song.</p>';
+        else showToast(d.error || 'Something went wrong');
+      });
+    }
+  } catch (e) { /* stories non-critical */ }
+}
+
+// --- Artist Page ---
+async function renderArtist(name) {
+  app.innerHTML = '<p>Loading...</p>';
+  const data = await api('/api/artist/' + encodeURIComponent(name));
+  if (data.error) { app.innerHTML = `<h1>No songs found for "${name}"</h1><p>Try <a href="/check" data-link>checking a song</a> by this artist to add them.</p>`; return; }
+
+  const songRows = data.songs.map(s => {
+    const sl = s.sensory_level === 'safe' ? 'badge-safe' : s.sensory_level === 'moderate' ? 'badge-moderate' : 'badge-intense';
+    return `<a href="/song/${s.slug}" data-link style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem;background:var(--bg-card);border-radius:var(--radius-sm);text-decoration:none;color:var(--text)">
+      <div><strong>${s.title}</strong>${s.year ? `<span style="color:var(--text-dim);font-size:0.8rem;margin-left:0.5rem">${s.year}</span>` : ''}</div>
+      <div style="display:flex;gap:0.5rem;align-items:center">
+        <span style="color:var(--text-dim);font-size:0.8rem">DR ${s.dynamic_range}</span>
+        <span class="badge ${sl}" style="font-size:0.7rem">${s.sensory_level}</span>
+      </div>
+    </a>`;
+  }).join('');
+
+  app.innerHTML = `<div style="max-width:720px;margin:0 auto">
+    <h1>${data.artist}</h1>
+    <p style="color:var(--text-muted)">${data.song_count} songs analyzed</p>
+
+    <div style="display:flex;gap:1rem;margin:1.5rem 0;flex-wrap:wrap">
+      <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:100px;text-align:center">
+        <div style="font-size:1.5rem;font-weight:700;color:var(--accent)">${data.avg_dynamic_range}</div>
+        <div style="font-size:0.75rem;color:var(--text-dim)">Avg Dynamic Range</div>
+      </div>
+      <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:100px;text-align:center">
+        <div style="font-size:1.5rem;font-weight:700;color:var(--safe)">${data.levels.safe}</div>
+        <div style="font-size:0.75rem;color:var(--text-dim)">Safe</div>
+      </div>
+      <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:100px;text-align:center">
+        <div style="font-size:1.5rem;font-weight:700;color:var(--moderate)">${data.levels.moderate}</div>
+        <div style="font-size:0.75rem;color:var(--text-dim)">Moderate</div>
+      </div>
+      <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:100px;text-align:center">
+        <div style="font-size:1.5rem;font-weight:700;color:var(--intense)">${data.levels.intense}</div>
+        <div style="font-size:0.75rem;color:var(--text-dim)">Intense</div>
+      </div>
+    </div>
+
+    <h2>Every Song, Decoded</h2>
+    <div style="display:flex;flex-direction:column;gap:0.5rem">${songRows}</div>
+
+    <div style="margin-top:2rem">
+      <a href="/library" data-link style="color:var(--accent)">&larr; Back to Library</a>
+      &nbsp;&nbsp;
+      <a href="/check" data-link style="color:var(--accent)">Check another song &rarr;</a>
+    </div>
+  </div>`;
 }
 
 function renderFinder() {
