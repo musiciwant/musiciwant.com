@@ -1405,8 +1405,10 @@ function sidebarHTML() {
       <a href="/library" class="sidebar-link"><span class="sidebar-icon">&#9835;</span> Library</a>
       <a href="/finder" class="sidebar-link"><span class="sidebar-icon">&#10026;</span> Find Music</a>
       <a href="/check" class="sidebar-link"><span class="sidebar-icon">&#10003;</span> Check a Song</a>
+      <a href="/wall" class="sidebar-link"><span class="sidebar-icon">&#9829;</span> The Wall</a>
       <a href="/profile" class="sidebar-link"><span class="sidebar-icon">&#9733;</span> My Profile</a>
       <a href="/make" class="sidebar-link"><span class="sidebar-icon">&#9836;</span> Make Music</a>
+      <a href="/request" class="sidebar-link"><span class="sidebar-icon">+</span> Request Artist</a>
       <a href="/about" class="sidebar-link"><span class="sidebar-icon">&#9432;</span> About</a>
     </nav>
   </aside>`;

@@ -100,6 +100,7 @@ function route() {
   else if (p === '/about') renderAbout();
   else if (p === '/check') renderChecker();
   else if (p === '/request') renderRequestArtist();
+  else if (p === '/wall') renderWall();
   else if (p === '/profile') renderProfile();
   else if (p.startsWith('/check/')) renderSong(p.replace('/check/', ''));
   else if (p.startsWith('/artist/')) renderArtist(p.replace('/artist/', ''));
@@ -1155,6 +1156,54 @@ function renderChecker() {
 }
 
 // --- Request an Artist ---
+// --- The Wall: Global Story Feed ---
+async function renderWall() {
+  app.innerHTML = '<p>Loading stories...</p>';
+  const stories = await api('/api/stories/recent/all');
+  const artists = await api('/api/artists');
+
+  const storyCards = stories.length > 0 ? stories.map(st => `
+    <div style="padding:1.25rem;background:var(--bg-card);border-radius:var(--radius);border-left:3px solid var(--accent)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+        <a href="/song/${st.song_slug}" data-link style="color:var(--accent);text-decoration:none;font-weight:600">${st.song_title || st.song_slug}</a>
+        <span style="color:var(--text-dim);font-size:0.75rem">${st.song_artist || ''}</span>
+      </div>
+      ${st.lyric ? `<p style="font-style:italic;color:var(--accent);font-size:0.85rem;margin:0 0 0.5rem 0">"${st.lyric}"</p>` : ''}
+      <p style="color:var(--text);font-size:0.95rem;margin:0 0 0.5rem 0">${st.story}</p>
+      <p style="color:var(--text-dim);font-size:0.75rem;margin:0"><strong>${st.name}</strong>${st.city ? ' — ' + st.city : ''}</p>
+    </div>`).join('') : '<p style="color:var(--text-dim)">No stories yet. Be the first — click any song and share what it means to you.</p>';
+
+  const artistLinks = artists.slice(0, 20).map(a => {
+    const slug = a.artist.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    return `<a href="/artist/${slug}" data-link class="home-cat-btn">${a.artist} (${a.song_count})</a>`;
+  }).join('');
+
+  app.innerHTML = `
+    <div style="max-width:760px;margin:0 auto">
+      <h1>The Wall</h1>
+      <p style="color:var(--text-muted);margin-bottom:1.5rem">Real people. Real songs. Real moments. This is what music means to the people who listen.</p>
+
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:2rem">
+        <div>
+          <div style="display:flex;flex-direction:column;gap:1rem">
+            ${storyCards}
+          </div>
+        </div>
+        <div>
+          <h3 style="color:var(--accent);font-size:0.9rem;margin-bottom:0.75rem">Artists with stories</h3>
+          <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1.5rem">
+            ${artistLinks}
+          </div>
+          <div style="padding:1.25rem;background:var(--bg-card);border-radius:var(--radius);text-align:center">
+            <p style="color:var(--text);font-size:0.9rem;margin:0 0 0.75rem 0">Your song. Your story.</p>
+            <p style="color:var(--text-dim);font-size:0.8rem;margin:0 0 0.75rem 0">Find a song that changed you. Tell us what it did.</p>
+            <a href="/library" data-link class="cta-primary" style="font-size:0.85rem">Find a Song</a>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
 function renderRequestArtist() {
   app.innerHTML = `
     <div style="max-width:560px;margin:0 auto">
