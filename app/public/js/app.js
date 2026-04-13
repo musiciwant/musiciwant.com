@@ -227,6 +227,8 @@ async function renderHome() {
       </a>
     </div>
 
+    <div id="home-stories" style="max-width:700px;margin:2rem auto"></div>
+
     <h2>Recently Added</h2>
     <div class="song-grid" id="recent-songs"></div>
     <footer class="site-footer">
@@ -247,6 +249,30 @@ async function renderHome() {
     });
   }
   updateSidebarStats();
+
+  // Load global story feed on homepage
+  try {
+    const stories = await api('/api/stories/recent/all');
+    const container = document.getElementById('home-stories');
+    if (container && stories.length > 0) {
+      const cards = stories.slice(0, 6).map(st => {
+        const artistSlug = st.song_artist.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+        return `<div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);border-left:3px solid var(--accent)">
+          <div style="font-size:0.75rem;color:var(--text-dim);margin-bottom:0.4rem">
+            <a href="/song/${st.song_slug}" data-link style="color:var(--accent);text-decoration:none">${st.song_title}</a> by <a href="/artist/${artistSlug}" data-link style="color:var(--text-muted);text-decoration:none">${st.song_artist}</a>
+          </div>
+          ${st.lyric ? `<p style="font-style:italic;color:var(--accent);font-size:0.85rem;margin:0 0 0.4rem 0">"${st.lyric}"</p>` : ''}
+          <p style="color:var(--text);font-size:0.9rem;margin:0 0 0.4rem 0">${st.story}</p>
+          <p style="color:var(--text-dim);font-size:0.75rem;margin:0"><strong>${st.name}</strong>${st.city ? ' — ' + st.city : ''}</p>
+        </div>`;
+      }).join('');
+
+      container.innerHTML = `
+        <h2 style="margin-bottom:0.5rem">What music means to people</h2>
+        <div style="display:flex;flex-direction:column;gap:0.75rem">${cards}</div>
+      `;
+    }
+  } catch (e) {}
 }
 
 async function renderLibrary() {
@@ -505,7 +531,8 @@ async function renderArtist(name) {
         <div style="display:flex;flex-direction:column;gap:0.5rem">${quiet.map(sc).join('')}</div>` : ''}
       </div>
       <div>
-        <h2 style="font-size:1rem;color:var(--accent);margin-bottom:0.75rem">The Wall &mdash; Fan Stories</h2>
+        <h2 style="font-size:1rem;color:var(--accent);margin-bottom:0.5rem">The Wall &mdash; Fan Stories</h2>
+        <a href="#asf-wrap" style="display:block;padding:0.6rem;background:var(--accent);color:var(--bg);border-radius:var(--radius-sm);text-align:center;text-decoration:none;font-weight:600;font-size:0.9rem;margin-bottom:1rem" onclick="document.getElementById('asf-wrap').scrollIntoView({behavior:'smooth'});document.getElementById('asf-song').focus();return false;">Share your story</a>
         <div style="display:flex;flex-direction:column;gap:0.75rem">${storyFeed}</div>
 
         <div style="margin-top:1.5rem;padding:1.25rem;background:var(--bg-card);border-radius:var(--radius);border:1px solid var(--bg-hover)">

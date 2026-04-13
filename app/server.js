@@ -906,6 +906,18 @@ app.get('/api/stories/:slug', (req, res) => {
 
 // Submit a story
 const storyLimits = new Map();
+// Get recent stories across all songs (global wall)
+app.get('/api/stories/recent/all', (req, res) => {
+  const stories = db.prepare(`
+    SELECT fs.*, s.title as song_title, s.artist as song_artist
+    FROM fan_stories fs
+    JOIN songs s ON s.slug = fs.song_slug
+    WHERE fs.approved = 1
+    ORDER BY fs.created_at DESC LIMIT 20
+  `).all();
+  res.json(stories);
+});
+
 // Content moderation: block slurs, threats, spam patterns
 const BLOCKED_PATTERNS = /\b(fuck|shit|ass(?:hole)?|bitch|cunt|faggot|nigger|retard|kill\s+(your|my|him|her|them)|http[s]?:\/\/|www\.|\.com\/|buy\s+now|click\s+here|free\s+money)\b/i;
 function moderateContent(text) {
@@ -1260,7 +1272,8 @@ app.get('/artist/:name', (req, res) => {
             </div>
 
             <div>
-              <h2 style="font-size:1rem;color:var(--accent);margin-bottom:0.75rem">The Wall &mdash; Fan Stories</h2>
+              <h2 style="font-size:1rem;color:var(--accent);margin-bottom:0.5rem">The Wall &mdash; Fan Stories</h2>
+              <a href="#artist-story-form" style="display:block;padding:0.6rem;background:var(--accent);color:var(--bg);border-radius:8px;text-align:center;text-decoration:none;font-weight:600;font-size:0.9rem;margin-bottom:1rem" onclick="document.getElementById('artist-story-form').scrollIntoView({behavior:'smooth'});document.getElementById('asf-song').focus();return false;">Share your story</a>
               <div style="display:flex;flex-direction:column;gap:0.75rem">
                 ${storyFeed}
               </div>
