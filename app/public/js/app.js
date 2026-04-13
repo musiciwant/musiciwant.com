@@ -99,6 +99,7 @@ function route() {
   else if (p === '/make') renderMakeMusic();
   else if (p === '/about') renderAbout();
   else if (p === '/check') renderChecker();
+  else if (p === '/request') renderRequestArtist();
   else if (p === '/profile') renderProfile();
   else if (p.startsWith('/check/')) renderSong(p.replace('/check/', ''));
   else if (p.startsWith('/artist/')) renderArtist(p.replace('/artist/', ''));
@@ -553,9 +554,15 @@ async function renderArtist(name) {
       </div>
     </div>
 
-    <div style="margin-top:2.5rem;padding:1.25rem;background:rgba(212,149,106,0.06);border-radius:var(--radius);border:1px solid rgba(212,149,106,0.15);text-align:center">
-      <p style="color:var(--text);font-size:0.95rem;margin:0 0 0.75rem 0">Know a ${data.artist} song we haven't decoded yet?</p>
-      <a href="/check" data-link style="display:inline-block;padding:0.6rem 1.5rem;background:var(--accent);color:var(--bg);border-radius:var(--radius-sm);text-decoration:none;font-weight:600">Check a Song</a>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:2.5rem">
+      <div style="padding:1.25rem;background:rgba(212,149,106,0.06);border-radius:var(--radius);border:1px solid rgba(212,149,106,0.15);text-align:center">
+        <p style="color:var(--text);font-size:0.95rem;margin:0 0 0.75rem 0">Know a ${data.artist} song we haven't decoded?</p>
+        <a href="/check" data-link style="display:inline-block;padding:0.6rem 1.5rem;background:var(--accent);color:var(--bg);border-radius:var(--radius-sm);text-decoration:none;font-weight:600">Check a Song</a>
+      </div>
+      <div style="padding:1.25rem;background:rgba(74,158,111,0.06);border-radius:var(--radius);border:1px solid rgba(74,158,111,0.15);text-align:center">
+        <p style="color:var(--text);font-size:0.95rem;margin:0 0 0.75rem 0">Don't see your favorite artist?</p>
+        <a href="/request" data-link style="display:inline-block;padding:0.6rem 1.5rem;background:var(--safe);color:var(--bg);border-radius:var(--radius-sm);text-decoration:none;font-weight:600">Request an Artist</a>
+      </div>
     </div>
 
     <div style="margin-top:1.5rem"><a href="/library" data-link style="color:var(--accent)">&larr; Back to Library</a></div>
@@ -1145,6 +1152,34 @@ function renderChecker() {
       error.style.display = 'block';
     }
   }
+}
+
+// --- Request an Artist ---
+function renderRequestArtist() {
+  app.innerHTML = `
+    <div style="max-width:560px;margin:0 auto">
+      <h1>Request an Artist</h1>
+      <p style="color:var(--text-muted);margin-bottom:1.5rem">Tell us who you want to see on Music I Want. We'll decode their catalog — every song analyzed for intensity, texture, and emotional arc.</p>
+      <div id="req-form" style="display:flex;flex-direction:column;gap:0.75rem">
+        <input type="text" id="req-artist" placeholder="Artist or band name" maxlength="100" class="filter-input" style="padding:0.75rem;font-size:1rem" required>
+        <input type="text" id="req-genre" placeholder="Genre (rock, pop, jazz, electronic...)" maxlength="50" class="filter-input" style="padding:0.6rem">
+        <input type="text" id="req-song" placeholder="Their best song, in your opinion" maxlength="100" class="filter-input" style="padding:0.6rem">
+        <textarea id="req-why" placeholder="What makes this artist special to you? (optional)" maxlength="500" rows="3" class="filter-input" style="padding:0.6rem;resize:vertical"></textarea>
+        <input type="email" id="req-email" placeholder="Your email (optional — we'll notify you when they're live)" class="filter-input" style="padding:0.6rem">
+        <button class="cta-primary" style="padding:0.75rem;font-size:1rem" id="req-submit">Request This Artist</button>
+      </div>
+    </div>`;
+  document.getElementById('req-submit').addEventListener('click', async () => {
+    const artist = document.getElementById('req-artist').value.trim();
+    if (!artist) { showToast('Enter an artist name'); return; }
+    const res = await fetch('/api/request-artist', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ artist_name: artist, genre: document.getElementById('req-genre').value.trim(), favorite_song: document.getElementById('req-song').value.trim(), why: document.getElementById('req-why').value.trim(), email: document.getElementById('req-email').value.trim() })
+    });
+    const d = await res.json();
+    if (d.ok) document.getElementById('req-form').innerHTML = '<p style="color:var(--safe);font-size:1.1rem;text-align:center;padding:2rem 0">Request received. We\\'ll decode their catalog soon.</p>';
+    else showToast(d.error || 'Something went wrong');
+  });
 }
 
 // --- Card button binding ---

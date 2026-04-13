@@ -918,6 +918,53 @@ app.get('/api/stories/recent/all', (req, res) => {
   res.json(stories);
 });
 
+// Artist request table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS artist_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    artist_name TEXT NOT NULL,
+    genre TEXT DEFAULT '',
+    favorite_song TEXT DEFAULT '',
+    why TEXT DEFAULT '',
+    email TEXT DEFAULT '',
+    status TEXT DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+// Submit artist request
+app.post('/api/request-artist', (req, res) => {
+  const { artist_name, genre, favorite_song, why, email } = req.body;
+  if (!artist_name) return res.status(400).json({ error: 'Artist name required' });
+  if (artist_name.length > 100) return res.status(400).json({ error: 'Name too long' });
+
+  // Rate limit: 3 requests per IP per hour
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const entry = storyLimits.get('req_' + ip);
+  if (entry && now < entry.reset && entry.count >= 3) return res.status(429).json({ error: 'Too many requests. Try again later.' });
+  if (!entry || now > (entry?.reset || 0)) storyLimits.set('req_' + ip, { count: 1, reset: now + 3600000 });
+  else entry.count++;
+
+  db.prepare(
+    'INSERT INTO artist_requests (artist_name, genre, favorite_song, why, email) VALUES (?, ?, ?, ?, ?)'
+  ).run(artist_name.slice(0, 100), (genre || '').slice(0, 50), (favorite_song || '').slice(0, 100), (why || '').slice(0, 500), (email || '').slice(0, 100));
+
+  // Capture email if provided
+  if (email && email.includes('@')) {
+    try { db.prepare('INSERT OR IGNORE INTO users (email, token) VALUES (?, ?)').run(email, require('crypto').randomBytes(16).toString('hex')); } catch (e) {}
+  }
+
+  res.json({ ok: true });
+});
+
+// Admin: view requests
+app.get('/api/admin/artist-requests', (req, res) => {
+  if (req.headers['x-admin-key'] !== ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+  const requests = db.prepare('SELECT * FROM artist_requests ORDER BY created_at DESC').all();
+  res.json(requests);
+});
+
 // Content moderation: block slurs, threats, spam patterns
 const BLOCKED_PATTERNS = /\b(fuck|shit|ass(?:hole)?|bitch|cunt|faggot|nigger|retard|kill\s+(your|my|him|her|them)|http[s]?:\/\/|www\.|\.com\/|buy\s+now|click\s+here|free\s+money)\b/i;
 function moderateContent(text) {
@@ -1312,9 +1359,15 @@ app.get('/artist/:name', (req, res) => {
             </div>
           </div>
 
-          <div style="margin-top:2.5rem;padding:1.25rem;background:rgba(212,149,106,0.06);border-radius:var(--radius);border:1px solid rgba(212,149,106,0.15);text-align:center">
-            <p style="color:var(--text);font-size:0.95rem;margin:0 0 0.75rem 0">Know a ${esc(name)} song we haven't decoded yet?</p>
-            <a href="/check" style="display:inline-block;padding:0.6rem 1.5rem;background:var(--accent);color:var(--bg);border-radius:var(--radius-sm);text-decoration:none;font-weight:600">Check a Song</a>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:2.5rem">
+            <div style="padding:1.25rem;background:rgba(212,149,106,0.06);border-radius:12px;border:1px solid rgba(212,149,106,0.15);text-align:center">
+              <p style="color:var(--text);font-size:0.95rem;margin:0 0 0.75rem 0">Know a ${esc(name)} song we haven't decoded?</p>
+              <a href="/check" style="display:inline-block;padding:0.6rem 1.5rem;background:var(--accent);color:var(--bg);border-radius:8px;text-decoration:none;font-weight:600">Check a Song</a>
+            </div>
+            <div style="padding:1.25rem;background:rgba(74,158,111,0.06);border-radius:12px;border:1px solid rgba(74,158,111,0.15);text-align:center">
+              <p style="color:var(--text);font-size:0.95rem;margin:0 0 0.75rem 0">Don't see your favorite artist?</p>
+              <a href="/request" style="display:inline-block;padding:0.6rem 1.5rem;background:var(--safe);color:var(--bg);border-radius:8px;text-decoration:none;font-weight:600">Request an Artist</a>
+            </div>
           </div>
 
           <div style="margin-top:1.5rem">
