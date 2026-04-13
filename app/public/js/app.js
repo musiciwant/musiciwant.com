@@ -507,6 +507,22 @@ async function renderArtist(name) {
       <div>
         <h2 style="font-size:1rem;color:var(--accent);margin-bottom:0.75rem">The Wall &mdash; Fan Stories</h2>
         <div style="display:flex;flex-direction:column;gap:0.75rem">${storyFeed}</div>
+
+        <div style="margin-top:1.5rem;padding:1.25rem;background:var(--bg-card);border-radius:var(--radius);border:1px solid var(--bg-hover)">
+          <h3 style="margin:0 0 0.75rem 0;font-size:0.95rem;color:var(--accent)">Add your story to the wall</h3>
+          <div id="asf-wrap" style="display:flex;flex-direction:column;gap:0.6rem">
+            <select id="asf-song" class="filter-select" style="padding:0.6rem">
+              <option value="">Which song?</option>
+              ${data.songs.map(s => `<option value="${s.slug}">${s.title}</option>`).join('')}
+            </select>
+            <input type="text" id="asf-name" placeholder="Your first name" maxlength="50" class="filter-input" style="padding:0.6rem">
+            <input type="text" id="asf-city" placeholder="City (optional)" maxlength="50" class="filter-input" style="padding:0.6rem">
+            <input type="text" id="asf-lyric" placeholder="Your favorite lyric (optional)" maxlength="200" class="filter-input" style="padding:0.6rem">
+            <textarea id="asf-story" placeholder="What does this song mean to you?" maxlength="1000" rows="3" class="filter-input" style="padding:0.6rem;resize:vertical"></textarea>
+            <input type="email" id="asf-email" placeholder="Email (optional — we'll never spam you)" class="filter-input" style="padding:0.6rem">
+            <button class="cta-primary" style="align-self:flex-start" id="asf-submit">Share My Story</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -517,6 +533,21 @@ async function renderArtist(name) {
 
     <div style="margin-top:1.5rem"><a href="/library" data-link style="color:var(--accent)">&larr; Back to Library</a></div>
   </div>`;
+
+  // Bind story form
+  document.getElementById('asf-submit')?.addEventListener('click', async () => {
+    const song = document.getElementById('asf-song').value;
+    const sname = document.getElementById('asf-name').value.trim();
+    const story = document.getElementById('asf-story').value.trim();
+    if (!song || !sname || !story) { showToast('Pick a song, add your name, and tell your story'); return; }
+    const res = await fetch('/api/stories', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ song_slug: song, name: sname, city: document.getElementById('asf-city').value.trim(), story, lyric: document.getElementById('asf-lyric').value.trim(), email: document.getElementById('asf-email').value.trim() })
+    });
+    const d = await res.json();
+    if (d.ok) document.getElementById('asf-wrap').innerHTML = '<p style="color:var(--safe);font-size:0.95rem">Thank you. Your story is now part of the wall.</p>';
+    else showToast(d.error || 'Something went wrong');
+  });
 }
 
 function renderFinder() {

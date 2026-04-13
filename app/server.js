@@ -906,11 +906,26 @@ app.get('/api/stories/:slug', (req, res) => {
 
 // Submit a story
 const storyLimits = new Map();
+// Content moderation: block slurs, threats, spam patterns
+const BLOCKED_PATTERNS = /\b(fuck|shit|ass(?:hole)?|bitch|cunt|faggot|nigger|retard|kill\s+(your|my|him|her|them)|http[s]?:\/\/|www\.|\.com\/|buy\s+now|click\s+here|free\s+money)\b/i;
+function moderateContent(text) {
+  if (BLOCKED_PATTERNS.test(text)) return false;
+  // Reject if more than 30% caps (shouting)
+  const upper = (text.match(/[A-Z]/g) || []).length;
+  if (text.length > 20 && upper / text.length > 0.3) return false;
+  return true;
+}
+
 app.post('/api/stories', (req, res) => {
-  const { song_slug, name, city, story, lyric } = req.body;
+  const { song_slug, name, city, story, lyric, email } = req.body;
   if (!song_slug || !name || !story) return res.status(400).json({ error: 'Name and story required' });
   if (story.length > 1000) return res.status(400).json({ error: 'Story must be under 1000 characters' });
   if (story.length < 10) return res.status(400).json({ error: 'Tell us a little more' });
+
+  // Content moderation
+  if (!moderateContent(story) || !moderateContent(name)) {
+    return res.status(400).json({ error: 'Your story contains content that can\'t be posted. Please revise and try again.' });
+  }
 
   // Rate limit: 5 stories per IP per hour
   const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
@@ -920,9 +935,15 @@ app.post('/api/stories', (req, res) => {
   if (!entry || now > (entry?.reset || 0)) storyLimits.set(ip, { count: 1, reset: now + 3600000 });
   else entry.count++;
 
+  // Save story
   db.prepare(
     'INSERT INTO fan_stories (song_slug, name, city, story, lyric) VALUES (?, ?, ?, ?, ?)'
   ).run(song_slug, name.slice(0, 50), (city || '').slice(0, 50), story.slice(0, 1000), (lyric || '').slice(0, 200));
+
+  // Optional email capture (for future newsletter — never spammed)
+  if (email && email.includes('@')) {
+    try { db.prepare('INSERT OR IGNORE INTO users (email, token) VALUES (?, ?)').run(email, require('crypto').randomBytes(16).toString('hex')); } catch (e) {}
+  }
 
   res.json({ ok: true });
 });
@@ -1242,6 +1263,38 @@ app.get('/artist/:name', (req, res) => {
               <h2 style="font-size:1rem;color:var(--accent);margin-bottom:0.75rem">The Wall &mdash; Fan Stories</h2>
               <div style="display:flex;flex-direction:column;gap:0.75rem">
                 ${storyFeed}
+              </div>
+
+              <div style="margin-top:1.5rem;padding:1.25rem;background:var(--bg-card);border-radius:var(--radius);border:1px solid var(--bg-hover)">
+                <h3 style="margin:0 0 0.75rem 0;font-size:0.95rem;color:var(--accent)">Add your story to the wall</h3>
+                <form id="artist-story-form" style="display:flex;flex-direction:column;gap:0.6rem">
+                  <select id="asf-song" class="filter-select" style="padding:0.6rem" required>
+                    <option value="">Which song?</option>
+                    ${songs.map(s => `<option value="${s.slug}">${esc(s.title)}</option>`).join('')}
+                  </select>
+                  <input type="text" id="asf-name" placeholder="Your first name" maxlength="50" class="filter-input" style="padding:0.6rem" required>
+                  <input type="text" id="asf-city" placeholder="City (optional)" maxlength="50" class="filter-input" style="padding:0.6rem">
+                  <input type="text" id="asf-lyric" placeholder="Your favorite lyric (optional)" maxlength="200" class="filter-input" style="padding:0.6rem">
+                  <textarea id="asf-story" placeholder="What does this song mean to you?" maxlength="1000" rows="3" class="filter-input" style="padding:0.6rem;resize:vertical" required></textarea>
+                  <input type="email" id="asf-email" placeholder="Email (optional — we'll never spam you)" class="filter-input" style="padding:0.6rem">
+                  <button type="submit" class="cta-primary" style="align-self:flex-start">Share My Story</button>
+                </form>
+                <script>
+                document.getElementById('artist-story-form').addEventListener('submit', function(e) {
+                  e.preventDefault();
+                  var song = document.getElementById('asf-song').value;
+                  var name = document.getElementById('asf-name').value.trim();
+                  var story = document.getElementById('asf-story').value.trim();
+                  if (!song || !name || !story) return;
+                  fetch('/api/stories', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ song_slug: song, name: name, city: document.getElementById('asf-city').value.trim(), story: story, lyric: document.getElementById('asf-lyric').value.trim(), email: document.getElementById('asf-email').value.trim() })
+                  }).then(function(r) { return r.json(); }).then(function(d) {
+                    if (d.ok) { e.target.innerHTML = '<p style="color:var(--safe);font-size:0.95rem">Thank you. Your story is now part of the wall.</p>'; }
+                    else { alert(d.error || 'Something went wrong'); }
+                  });
+                });
+                </script>
               </div>
             </div>
           </div>
