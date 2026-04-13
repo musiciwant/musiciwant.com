@@ -670,6 +670,7 @@ app.post('/api/finder', (req, res) => {
 // --- Song Checker: "Is This Song Safe?" ---
 
 const OPENAI_KEY = process.env.OPENAI_KEY || '';
+const PERPLEXITY_KEY = process.env.PERPLEXITY_KEY || '';
 
 app.post('/api/check', async (req, res) => {
   const { title, artist } = req.body;
@@ -691,10 +692,14 @@ app.post('/api/check', async (req, res) => {
     return res.json({ found: true, song: existing });
   }
 
-  // Step 2: AI analysis
-  if (!OPENAI_KEY) {
+  // Step 2: AI analysis — Perplexity (real-time web search) preferred, OpenAI fallback
+  const aiKey = PERPLEXITY_KEY || OPENAI_KEY;
+  if (!aiKey) {
     return res.status(503).json({ error: 'AI analysis is not configured. Song not found in our database.' });
   }
+  const usePerplexity = !!PERPLEXITY_KEY;
+  const aiEndpoint = usePerplexity ? 'https://api.perplexity.ai/chat/completions' : 'https://api.openai.com/v1/chat/completions';
+  const aiModel = usePerplexity ? 'sonar' : 'gpt-4o-mini';
 
   const slug = (title + '-' + artist).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 80);
 
@@ -708,16 +713,16 @@ app.post('/api/check', async (req, res) => {
   }
 
   try {
-    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+    const aiRes = await fetch(aiEndpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_KEY}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiKey}` },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: aiModel,
         temperature: 0.3,
-        response_format: { type: 'json_object' },
+        ...(usePerplexity ? {} : { response_format: { type: 'json_object' } }),
         messages: [{
           role: 'system',
-          content: `You are a music sensory analyst. Given a song title and artist, analyze the song for sensory sensitivity. You must be accurate based on your knowledge of the actual song. If you do not know the song, set "unknown" to true. Return JSON with these exact fields:
+          content: `You are a music sensory analyst. Given a song title and artist, search for and analyze the song for sensory sensitivity. Look up the actual song to be accurate about its properties — tempo, dynamics, production style, vocal characteristics. If you truly cannot find or identify the song, set "unknown" to true. Return ONLY valid JSON (no markdown, no explanation) with these exact fields:
 {
   "unknown": false,
   "title": "exact song title",
@@ -752,7 +757,10 @@ Valid recommended_for: sleep, focus, anxiety relief, meltdown recovery, deep lis
     });
 
     const aiData = await aiRes.json();
-    const analysis = JSON.parse(aiData.choices[0].message.content);
+    // Parse response — handle markdown-wrapped JSON from Perplexity
+    let rawContent = aiData.choices[0].message.content;
+    rawContent = rawContent.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const analysis = JSON.parse(rawContent);
 
     if (analysis.unknown) {
       return res.json({ found: false, error: 'Song not recognized. We can only analyze songs in our knowledge base.' });
