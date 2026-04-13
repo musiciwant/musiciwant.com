@@ -497,6 +497,13 @@ a:hover { color: var(--text); }
   border-color: var(--accent);
   color: var(--accent);
 }
+.home-feature-card:hover {
+  border-color: var(--accent) !important;
+}
+@media (max-width: 768px) {
+  .home-feature-card { grid-column: span 1; }
+  div[style*="grid-template-columns: 1fr 1fr"] { grid-template-columns: 1fr !important; }
+}
 .cta-secondary {
   padding: 0.6rem 1.5rem;
   background: transparent;

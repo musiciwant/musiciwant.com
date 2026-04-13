@@ -184,31 +184,48 @@ async function renderHome() {
   app.innerHTML = `
     <section class="home-hero">
       <h1>Find the music you want.</h1>
-      <p class="tagline">Search, discover, or create &mdash; music matched to you.</p>
+      <p class="tagline">Understand any song. Discover what hits the same.</p>
 
-      <div class="home-search" style="max-width:500px;margin:1.5rem auto">
-        <div style="display:flex;gap:0.5rem">
-          <input type="text" id="home-search-input" placeholder="Search any song or artist..." class="filter-input" style="flex:1;padding:0.75rem 1rem;font-size:1rem">
-          <a href="/check" data-link class="cta-primary" style="white-space:nowrap">Check a Song</a>
-        </div>
+      <div class="home-search" style="max-width:560px;margin:1.5rem auto">
+        <input type="text" id="home-search-input" placeholder="Search any song, artist, or mood..." class="filter-input" style="width:100%;padding:0.85rem 1.2rem;font-size:1.05rem;border-radius:var(--radius);text-align:center">
       </div>
 
-      <div class="home-categories" style="margin-top:2rem">
-        <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:0.75rem">What are you looking for?</p>
+      <div style="display:flex;gap:0.75rem;justify-content:center;margin-top:1rem;flex-wrap:wrap">
+        <a href="/finder" data-link class="cta-primary">Find Music For Me</a>
+        <a href="/check" data-link class="cta-primary" style="background:var(--safe)">Check a Song</a>
+        <a href="/make" data-link class="cta-primary" style="background:var(--moderate)">Make a Song</a>
+      </div>
+
+      <div class="home-categories" style="margin-top:2.5rem">
+        <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:0.75rem">Explore</p>
         <div style="display:flex;flex-wrap:wrap;gap:0.5rem;justify-content:center">
-          <a href="/library?recommended_for=sleep" data-link class="home-cat-btn">Sleep</a>
+          <a href="/library?recommended_for=deep+listening" data-link class="home-cat-btn">Deep Listening</a>
+          <a href="/library?mood=cathartic" data-link class="home-cat-btn">Songs That Build</a>
+          <a href="/library?mood=intimate" data-link class="home-cat-btn">Intimate &amp; Quiet</a>
           <a href="/library?recommended_for=focus" data-link class="home-cat-btn">Focus &amp; Study</a>
+          <a href="/library?recommended_for=sleep" data-link class="home-cat-btn">Sleep</a>
           <a href="/library?recommended_for=anxiety+relief" data-link class="home-cat-btn">Anxiety Relief</a>
           <a href="/library?sensory_level=safe" data-link class="home-cat-btn" style="border-color:var(--safe)">Sensory Safe</a>
-          <a href="/library?recommended_for=energy" data-link class="home-cat-btn">Workout &amp; Energy</a>
+          <a href="/library?recommended_for=energy" data-link class="home-cat-btn">Workout</a>
+          <a href="/library?mood=melancholy" data-link class="home-cat-btn">Beautiful Sadness</a>
           <a href="/library?recommended_for=meditation" data-link class="home-cat-btn">Meditation</a>
-          <a href="/finder" data-link class="home-cat-btn">Match My Mood</a>
-          <a href="/make" data-link class="home-cat-btn" style="border-color:var(--moderate)">Create My Own</a>
-          <a href="/profile" data-link class="home-cat-btn">Build My Profile</a>
+          <a href="/profile" data-link class="home-cat-btn">My Profile</a>
           <a href="/library" data-link class="home-cat-btn">Browse All</a>
         </div>
       </div>
     </section>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;max-width:700px;margin:2rem auto">
+      <a href="/check" data-link style="padding:1.5rem;background:var(--bg-card);border-radius:var(--radius);text-decoration:none;border:1px solid var(--bg-hover);transition:border-color 0.15s" class="home-feature-card">
+        <h3 style="color:var(--safe);margin:0 0 0.5rem 0;font-size:1rem">Understand Any Song</h3>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin:0">Enter any song &mdash; see its dynamic range, texture, intensity, and emotional arc before you press play.</p>
+      </a>
+      <a href="/make" data-link style="padding:1.5rem;background:var(--bg-card);border-radius:var(--radius);text-decoration:none;border:1px solid var(--bg-hover);transition:border-color 0.15s" class="home-feature-card">
+        <h3 style="color:var(--moderate);margin:0 0 0.5rem 0;font-size:1rem">Create Your Own</h3>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin:0">Describe the music you want to hear. Pick a genre, set the intensity, and we'll create a unique song that exists nowhere else.</p>
+      </a>
+    </div>
+
     <h2>Recently Added</h2>
     <div class="song-grid" id="recent-songs"></div>
     <footer class="site-footer">

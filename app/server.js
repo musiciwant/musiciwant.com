@@ -103,6 +103,24 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_users_token ON users(token);
   CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+  -- Verification tracking
+  CREATE TABLE IF NOT EXISTS song_verifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    song_id INTEGER NOT NULL,
+    song_slug TEXT NOT NULL,
+    verification_type TEXT NOT NULL,
+    ai_source TEXT NOT NULL,
+    field_checked TEXT NOT NULL,
+    original_value TEXT DEFAULT '',
+    verified_value TEXT DEFAULT '',
+    status TEXT CHECK(status IN ('confirmed','corrected','flagged','unverified')) NOT NULL,
+    notes TEXT DEFAULT '',
+    verified_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_verifications_song ON song_verifications(song_id);
+  CREATE INDEX IF NOT EXISTS idx_verifications_status ON song_verifications(status);
 `);
 
 // Migration: add source column if it doesn't exist
@@ -400,6 +418,62 @@ fetch('/api/playlists/load/${req.params.token}')
   .catch(() => { window.location.href = '/'; });
 </script>
 </body></html>`);
+});
+
+// --- Verification API ---
+
+// Record verification results
+app.post('/api/admin/verify', (req, res) => {
+  if (req.headers['x-admin-key'] !== ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+  const results = req.body;
+  if (!Array.isArray(results)) return res.status(400).json({ error: 'Expected array' });
+
+  const stmt = db.prepare(`INSERT INTO song_verifications (song_id, song_slug, verification_type, ai_source, field_checked, original_value, verified_value, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
+  let recorded = 0;
+  for (const r of results) {
+    try {
+      stmt.run(r.song_id, r.song_slug, r.verification_type, r.ai_source, r.field_checked, r.original_value || '', r.verified_value || '', r.status, r.notes || '');
+      recorded++;
+    } catch (e) { /* skip duplicates */ }
+  }
+
+  res.json({ recorded, total: results.length });
+});
+
+// Get verification status
+app.get('/api/admin/verification-status', (req, res) => {
+  if (req.headers['x-admin-key'] !== ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+
+  const total = db.prepare('SELECT COUNT(*) as c FROM songs').get().c;
+  const verified = db.prepare('SELECT COUNT(DISTINCT song_id) as c FROM song_verifications').get().c;
+  const confirmed = db.prepare("SELECT COUNT(DISTINCT song_id) as c FROM song_verifications WHERE status = 'confirmed'").get().c;
+  const corrected = db.prepare("SELECT COUNT(DISTINCT song_id) as c FROM song_verifications WHERE status = 'corrected'").get().c;
+  const flagged = db.prepare("SELECT COUNT(DISTINCT song_id) as c FROM song_verifications WHERE status = 'flagged'").get().c;
+
+  const byType = db.prepare("SELECT verification_type, COUNT(*) as c FROM song_verifications GROUP BY verification_type").all();
+  const bySource = db.prepare("SELECT ai_source, COUNT(*) as c FROM song_verifications GROUP BY ai_source").all();
+
+  res.json({ total_songs: total, songs_verified: verified, confirmed, corrected, flagged, unverified: total - verified, by_type: byType, by_source: bySource });
+});
+
+// Apply corrections from verification
+app.post('/api/admin/apply-corrections', (req, res) => {
+  if (req.headers['x-admin-key'] !== ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+
+  const corrections = db.prepare("SELECT * FROM song_verifications WHERE status = 'corrected'").all();
+  let applied = 0;
+
+  for (const c of corrections) {
+    if (['sensory_level', 'dynamic_range', 'sudden_changes', 'texture', 'predictability', 'vocal_style', 'album', 'year', 'bpm'].includes(c.field_checked)) {
+      try {
+        db.prepare(`UPDATE songs SET ${c.field_checked} = ? WHERE id = ?`).run(c.verified_value, c.song_id);
+        applied++;
+      } catch (e) { /* constraint violation */ }
+    }
+  }
+
+  res.json({ applied, total: corrections.length });
 });
 
 // --- API Routes ---
@@ -1164,7 +1238,7 @@ function renderHomePage(recentSongs, totalSongs, totalArtists) {
 
   return `${headHTML(
     'Music I Want — Find the Music You Want',
-    'Find the music you want. Search any song, discover by mood, or create your own. Music rated for sleep, focus, anxiety, sensory safety, and more.',
+    'Find the music you want. Understand any song. Discover what hits the same. Every song analyzed for texture, intensity, and emotional arc.',
     'https://musiciwant.com'
   )}
   <script type="application/ld+json">
@@ -1176,36 +1250,52 @@ function renderHomePage(recentSongs, totalSongs, totalArtists) {
     <div id="app">
       <section class="home-hero">
         <h1>Find the music you want.</h1>
-        <p class="tagline">Search, discover, or create &mdash; music matched to you. ${totalSongs} songs from ${totalArtists} artists.</p>
+        <p class="tagline">Understand any song. Discover what hits the same. ${totalSongs} songs analyzed.</p>
 
-        <div style="max-width:500px;margin:1.5rem auto">
-          <div style="display:flex;gap:0.5rem">
-            <form action="/library" method="get" style="display:flex;gap:0.5rem;flex:1">
-              <input type="text" name="search" placeholder="Search any song or artist..." class="filter-input" style="flex:1;padding:0.75rem 1rem;font-size:1rem">
-              <a href="/check" class="cta-primary" style="white-space:nowrap">Check a Song</a>
-            </form>
-          </div>
+        <div style="max-width:560px;margin:1.5rem auto">
+          <form action="/library" method="get">
+            <input type="text" name="search" placeholder="Search any song, artist, or mood..." class="filter-input" style="width:100%;padding:0.85rem 1.2rem;font-size:1.05rem;border-radius:12px;text-align:center">
+          </form>
         </div>
 
-        <div style="margin-top:2rem">
-          <p style="color:#5a5550;font-size:0.85rem;margin-bottom:0.75rem">What are you looking for?</p>
+        <div style="display:flex;gap:0.75rem;justify-content:center;margin-top:1rem;flex-wrap:wrap">
+          <a href="/finder" class="cta-primary">Find Music For Me</a>
+          <a href="/check" class="cta-primary" style="background:var(--safe)">Check a Song</a>
+          <a href="/make" class="cta-primary" style="background:var(--moderate)">Make a Song</a>
+        </div>
+
+        <div style="margin-top:2.5rem">
+          <p style="color:#5a5550;font-size:0.85rem;margin-bottom:0.75rem">Explore</p>
           <div style="display:flex;flex-wrap:wrap;gap:0.5rem;justify-content:center">
-            <a href="/library?recommended_for=sleep" class="home-cat-btn">Sleep</a>
+            <a href="/library?recommended_for=deep+listening" class="home-cat-btn">Deep Listening</a>
+            <a href="/library?mood=cathartic" class="home-cat-btn">Songs That Build</a>
+            <a href="/library?mood=intimate" class="home-cat-btn">Intimate &amp; Quiet</a>
             <a href="/library?recommended_for=focus" class="home-cat-btn">Focus &amp; Study</a>
+            <a href="/library?recommended_for=sleep" class="home-cat-btn">Sleep</a>
             <a href="/library?recommended_for=anxiety+relief" class="home-cat-btn">Anxiety Relief</a>
             <a href="/library?sensory_level=safe" class="home-cat-btn" style="border-color:var(--safe)">Sensory Safe</a>
-            <a href="/library?recommended_for=energy" class="home-cat-btn">Workout &amp; Energy</a>
+            <a href="/library?recommended_for=energy" class="home-cat-btn">Workout</a>
+            <a href="/library?mood=melancholy" class="home-cat-btn">Beautiful Sadness</a>
             <a href="/library?recommended_for=meditation" class="home-cat-btn">Meditation</a>
-            <a href="/finder" class="home-cat-btn">Match My Mood</a>
-            <a href="/make" class="home-cat-btn" style="border-color:#c4a94d">Create My Own</a>
-            <a href="/profile" class="home-cat-btn">Build My Profile</a>
+            <a href="/profile" class="home-cat-btn">My Profile</a>
             <a href="/library" class="home-cat-btn">Browse All</a>
           </div>
         </div>
       </section>
 
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;max-width:700px;margin:2rem auto">
+        <a href="/check" style="padding:1.5rem;background:var(--bg-card);border-radius:12px;text-decoration:none;border:1px solid #1c1c28">
+          <h3 style="color:var(--safe);margin:0 0 0.5rem 0;font-size:1rem">Understand Any Song</h3>
+          <p style="color:#8a8580;font-size:0.85rem;margin:0">Enter any song &mdash; see its dynamic range, texture, intensity, and emotional arc before you press play.</p>
+        </a>
+        <a href="/make" style="padding:1.5rem;background:var(--bg-card);border-radius:12px;text-decoration:none;border:1px solid #1c1c28">
+          <h3 style="color:var(--moderate);margin:0 0 0.5rem 0;font-size:1rem">Create Your Own</h3>
+          <p style="color:#8a8580;font-size:0.85rem;margin:0">Describe the music you want to hear. Pick a genre, set the intensity, and we'll create a unique song for you.</p>
+        </a>
+      </div>
+
       <h2>What is Music I Want?</h2>
-      <p>Whether you need music for focus, sleep, anxiety relief, or sensory safety &mdash; we rate every song so you know what you're about to hear before you press play. Dynamic range, sudden changes, texture, predictability, vocal style. <a href="/check">Check any song instantly</a> or <a href="/library">browse our rated library</a>.</p>
+      <p>Every song has a DNA &mdash; its dynamic range, texture, intensity, predictability, and emotional arc. We analyze every song so you can understand what you're hearing, find music that hits the same way, and discover songs you'd never find through genre labels alone. Whether you're a Pearl Jam fanatic looking for songs with the same gut-punch as "Black," or a parent finding safe music for a sensory-sensitive child, the DNA tells you what you need to know. <a href="/check">Check any song</a> or <a href="/library">explore the library</a>.</p>
 
       <h2>Recently Added</h2>
       <ul style="list-style:none;padding:0">${songList}</ul>
