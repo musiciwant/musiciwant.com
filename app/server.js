@@ -1142,61 +1142,114 @@ app.get('/artist/:name', (req, res) => {
   const avgDR = Math.round((totalDR / songs.length) * 10) / 10;
   const name = songs[0].artist;
 
-  const songRows = songs.map(s => {
+  // Generate personality line
+  const mostCommon = levels.intense >= levels.moderate && levels.intense >= levels.safe ? 'intense' : levels.moderate >= levels.safe ? 'moderate' : 'safe';
+  const personality = mostCommon === 'intense'
+    ? `${esc(name)} is a band that doesn't hold back. ${levels.intense} of ${songs.length} songs hit intense — this is music that demands something from you.`
+    : mostCommon === 'safe'
+    ? `${esc(name)} lives in gentleness. ${levels.safe} of ${songs.length} songs are safe — this is music that holds you.`
+    : `${esc(name)} lives in the middle ground — ${levels.moderate} moderate songs that balance intensity with control. ${levels.safe > 0 ? `${levels.safe} quiet anchor${levels.safe > 1 ? 's' : ''} and ` : ''}${levels.intense > 0 ? `${levels.intense} song${levels.intense > 1 ? 's' : ''} where they let go completely.` : ''}`;
+
+  // Group songs by feel
+  const quietSongs = songs.filter(s => s.sensory_level === 'safe');
+  const middleSongs = songs.filter(s => s.sensory_level === 'moderate');
+  const loudSongs = songs.filter(s => s.sensory_level === 'intense');
+
+  function songCard(s) {
     const sl = s.sensory_level === 'safe' ? 'badge-safe' : s.sensory_level === 'moderate' ? 'badge-moderate' : 'badge-intense';
-    return `<a href="/song/${s.slug}" style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem;background:var(--bg-card);border-radius:var(--radius-sm);text-decoration:none;color:var(--text)">
-      <div>
+    const drBar = `<span style="display:inline-block;width:60px;height:4px;background:var(--bg-hover);border-radius:2px;vertical-align:middle;margin-left:0.5rem"><span style="display:block;height:100%;width:${s.dynamic_range*10}%;background:var(--accent);border-radius:2px"></span></span>`;
+    return `<a href="/song/${s.slug}" style="display:block;padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);text-decoration:none;color:var(--text);border-left:3px solid ${s.sensory_level === 'safe' ? 'var(--safe)' : s.sensory_level === 'moderate' ? 'var(--moderate)' : 'var(--intense)'}">
+      <div style="display:flex;justify-content:space-between;align-items:center">
         <strong>${esc(s.title)}</strong>
-        ${s.year ? `<span style="color:var(--text-dim);font-size:0.8rem;margin-left:0.5rem">${s.year}</span>` : ''}
-      </div>
-      <div style="display:flex;gap:0.5rem;align-items:center">
-        <span style="color:var(--text-dim);font-size:0.8rem">DR ${s.dynamic_range}</span>
         <span class="badge ${sl}" style="font-size:0.7rem">${s.sensory_level}</span>
       </div>
+      <div style="margin-top:0.4rem;font-size:0.8rem;color:var(--text-dim)">
+        ${s.texture} texture &middot; ${s.sudden_changes} changes &middot; DR ${s.dynamic_range} ${drBar}
+        ${s.year ? ` &middot; ${s.year}` : ''}
+      </div>
     </a>`;
-  }).join('');
+  }
+
+  // Get recent fan stories across all this artist's songs
+  const slugs = songs.map(s => s.slug);
+  const placeholders = slugs.map(() => '?').join(',');
+  const recentStories = db.prepare(
+    `SELECT fs.*, s.title as song_title FROM fan_stories fs
+     JOIN songs s ON s.slug = fs.song_slug
+     WHERE fs.song_slug IN (${placeholders}) AND fs.approved = 1
+     ORDER BY fs.created_at DESC LIMIT 10`
+  ).all(...slugs);
+
+  const storyFeed = recentStories.length > 0
+    ? recentStories.map(st => `<div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);border-left:3px solid var(--accent)">
+        <div style="font-size:0.75rem;color:var(--text-dim);margin-bottom:0.4rem"><a href="/song/${st.song_slug}" style="color:var(--accent);text-decoration:none">${esc(st.song_title)}</a></div>
+        ${st.lyric ? `<p style="font-style:italic;color:var(--accent);font-size:0.85rem;margin:0 0 0.4rem 0">"${esc(st.lyric)}"</p>` : ''}
+        <p style="color:var(--text);font-size:0.9rem;margin:0 0 0.4rem 0">${esc(st.story)}</p>
+        <p style="color:var(--text-dim);font-size:0.75rem;margin:0"><strong>${esc(st.name)}</strong>${st.city ? ` &mdash; ${esc(st.city)}` : ''}</p>
+      </div>`).join('')
+    : `<div style="padding:2rem;background:var(--bg-card);border-radius:var(--radius);text-align:center">
+        <p style="color:var(--text-muted);font-size:1rem;margin:0 0 0.5rem 0">No stories yet.</p>
+        <p style="color:var(--text-dim);font-size:0.85rem;margin:0">Click any song and share what it means to you. Be the first voice on this wall.</p>
+      </div>`;
 
   res.send(`${headHTML(
-    `${esc(name)} — Sensory Profile & Song Analysis | Music I Want`,
-    `Every ${esc(name)} song analyzed for intensity, texture, and emotional arc. ${songs.length} songs rated.`,
+    `${esc(name)} — Every Song Decoded | Music I Want`,
+    `${personality} ${songs.length} songs analyzed for intensity, texture, and emotional arc.`,
     `https://musiciwant.com/artist/${encodeURIComponent(name)}`
   )}
   <body>
     ${sidebarHTML()}
     <main class="main-content">
       <div id="app">
-        <div style="max-width:720px;margin:0 auto">
-          <h1>${esc(name)}</h1>
-          <p style="color:var(--text-muted)">${songs.length} songs analyzed</p>
+        <div style="max-width:760px;margin:0 auto">
 
-          <div style="display:flex;gap:1rem;margin:1.5rem 0;flex-wrap:wrap">
-            <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:120px;text-align:center">
-              <div style="font-size:1.5rem;font-weight:700;color:var(--accent)">${avgDR}</div>
-              <div style="font-size:0.75rem;color:var(--text-dim)">Avg Dynamic Range</div>
+          <div style="margin-bottom:2rem">
+            <h1 style="margin-bottom:0.25rem">${esc(name)}</h1>
+            <p style="color:var(--text-muted);font-size:1.05rem;font-style:italic;margin:0">${personality}</p>
+          </div>
+
+          <div style="display:flex;gap:1rem;margin-bottom:2.5rem;flex-wrap:wrap">
+            <div style="padding:1rem 1.5rem;background:var(--bg-card);border-radius:var(--radius-sm);text-align:center;flex:1;min-width:100px">
+              <div style="font-size:2rem;font-weight:700;color:var(--accent)">${avgDR}</div>
+              <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em">Avg Intensity</div>
             </div>
-            <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:120px;text-align:center">
-              <div style="font-size:1.5rem;font-weight:700;color:var(--safe)">${levels.safe}</div>
-              <div style="font-size:0.75rem;color:var(--text-dim)">Safe</div>
+            <div style="padding:1rem 1.5rem;background:var(--bg-card);border-radius:var(--radius-sm);text-align:center;flex:1;min-width:100px">
+              <div style="font-size:2rem;font-weight:700;color:var(--text)">${songs.length}</div>
+              <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em">Songs Decoded</div>
             </div>
-            <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:120px;text-align:center">
-              <div style="font-size:1.5rem;font-weight:700;color:var(--moderate)">${levels.moderate}</div>
-              <div style="font-size:0.75rem;color:var(--text-dim)">Moderate</div>
-            </div>
-            <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:120px;text-align:center">
-              <div style="font-size:1.5rem;font-weight:700;color:var(--intense)">${levels.intense}</div>
-              <div style="font-size:0.75rem;color:var(--text-dim)">Intense</div>
+            <div style="padding:1rem 1.5rem;background:var(--bg-card);border-radius:var(--radius-sm);text-align:center;flex:1;min-width:100px">
+              <div style="font-size:2rem;font-weight:700;color:var(--text)">${recentStories.length}</div>
+              <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em">Fan Stories</div>
             </div>
           </div>
 
-          <h2>Every Song, Decoded</h2>
-          <div style="display:flex;flex-direction:column;gap:0.5rem">
-            ${songRows}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem">
+            <div>
+              ${loudSongs.length > 0 ? `<h2 style="font-size:1rem;color:var(--intense);margin-bottom:0.75rem">The songs that hit hardest</h2>
+              <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:2rem">${loudSongs.map(songCard).join('')}</div>` : ''}
+
+              ${middleSongs.length > 0 ? `<h2 style="font-size:1rem;color:var(--moderate);margin-bottom:0.75rem">The controlled burn</h2>
+              <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:2rem">${middleSongs.map(songCard).join('')}</div>` : ''}
+
+              ${quietSongs.length > 0 ? `<h2 style="font-size:1rem;color:var(--safe);margin-bottom:0.75rem">The quiet ones</h2>
+              <div style="display:flex;flex-direction:column;gap:0.5rem">${quietSongs.map(songCard).join('')}</div>` : ''}
+            </div>
+
+            <div>
+              <h2 style="font-size:1rem;color:var(--accent);margin-bottom:0.75rem">The Wall &mdash; Fan Stories</h2>
+              <div style="display:flex;flex-direction:column;gap:0.75rem">
+                ${storyFeed}
+              </div>
+            </div>
           </div>
 
-          <div style="margin-top:2rem">
+          <div style="margin-top:2.5rem;padding:1.25rem;background:rgba(212,149,106,0.06);border-radius:var(--radius);border:1px solid rgba(212,149,106,0.15);text-align:center">
+            <p style="color:var(--text);font-size:0.95rem;margin:0 0 0.75rem 0">Know a ${esc(name)} song we haven't decoded yet?</p>
+            <a href="/check" style="display:inline-block;padding:0.6rem 1.5rem;background:var(--accent);color:var(--bg);border-radius:var(--radius-sm);text-decoration:none;font-weight:600">Check a Song</a>
+          </div>
+
+          <div style="margin-top:1.5rem">
             <a href="/library" style="color:var(--accent)">&larr; Back to Library</a>
-            &nbsp;&nbsp;
-            <a href="/check" style="color:var(--accent)">Check another song &rarr;</a>
           </div>
         </div>
       </div>

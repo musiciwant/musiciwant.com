@@ -425,48 +425,97 @@ async function renderArtist(name) {
   const data = await api('/api/artist/' + encodeURIComponent(name));
   if (data.error) { app.innerHTML = `<h1>No songs found for "${name}"</h1><p>Try <a href="/check" data-link>checking a song</a> by this artist to add them.</p>`; return; }
 
-  const songRows = data.songs.map(s => {
+  const mostCommon = data.levels.intense >= data.levels.moderate && data.levels.intense >= data.levels.safe ? 'intense' : data.levels.moderate >= data.levels.safe ? 'moderate' : 'safe';
+  const personality = mostCommon === 'intense'
+    ? `${data.artist} doesn't hold back. ${data.levels.intense} of ${data.song_count} songs hit intense — music that demands something from you.`
+    : mostCommon === 'safe'
+    ? `${data.artist} lives in gentleness. ${data.levels.safe} of ${data.song_count} songs are safe — music that holds you.`
+    : `${data.artist} lives in the middle ground — ${data.levels.moderate} moderate songs that balance intensity with control.`;
+
+  const quiet = data.songs.filter(s => s.sensory_level === 'safe');
+  const mid = data.songs.filter(s => s.sensory_level === 'moderate');
+  const loud = data.songs.filter(s => s.sensory_level === 'intense');
+
+  function sc(s) {
     const sl = s.sensory_level === 'safe' ? 'badge-safe' : s.sensory_level === 'moderate' ? 'badge-moderate' : 'badge-intense';
-    return `<a href="/song/${s.slug}" data-link style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem;background:var(--bg-card);border-radius:var(--radius-sm);text-decoration:none;color:var(--text)">
-      <div><strong>${s.title}</strong>${s.year ? `<span style="color:var(--text-dim);font-size:0.8rem;margin-left:0.5rem">${s.year}</span>` : ''}</div>
-      <div style="display:flex;gap:0.5rem;align-items:center">
-        <span style="color:var(--text-dim);font-size:0.8rem">DR ${s.dynamic_range}</span>
+    const borderColor = s.sensory_level === 'safe' ? 'var(--safe)' : s.sensory_level === 'moderate' ? 'var(--moderate)' : 'var(--intense)';
+    return `<a href="/song/${s.slug}" data-link style="display:block;padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);text-decoration:none;color:var(--text);border-left:3px solid ${borderColor}">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <strong>${s.title}</strong>
         <span class="badge ${sl}" style="font-size:0.7rem">${s.sensory_level}</span>
       </div>
+      <div style="margin-top:0.4rem;font-size:0.8rem;color:var(--text-dim)">
+        ${s.texture} texture &middot; ${s.sudden_changes} changes &middot; DR ${s.dynamic_range}
+        ${s.year ? ` &middot; ${s.year}` : ''}
+      </div>
     </a>`;
-  }).join('');
+  }
 
-  app.innerHTML = `<div style="max-width:720px;margin:0 auto">
-    <h1>${data.artist}</h1>
-    <p style="color:var(--text-muted)">${data.song_count} songs analyzed</p>
+  // Load stories
+  let storyFeed = '';
+  try {
+    const allStories = [];
+    for (const s of data.songs) {
+      const st = await api('/api/stories/' + s.slug);
+      st.forEach(x => { x.song_title = s.title; x.song_slug = s.slug; });
+      allStories.push(...st);
+    }
+    allStories.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    if (allStories.length > 0) {
+      storyFeed = allStories.slice(0, 10).map(st => `<div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);border-left:3px solid var(--accent)">
+        <div style="font-size:0.75rem;color:var(--text-dim);margin-bottom:0.4rem"><a href="/song/${st.song_slug}" data-link style="color:var(--accent);text-decoration:none">${st.song_title}</a></div>
+        ${st.lyric ? `<p style="font-style:italic;color:var(--accent);font-size:0.85rem;margin:0 0 0.4rem 0">"${st.lyric}"</p>` : ''}
+        <p style="color:var(--text);font-size:0.9rem;margin:0 0 0.4rem 0">${st.story}</p>
+        <p style="color:var(--text-dim);font-size:0.75rem;margin:0"><strong>${st.name}</strong>${st.city ? ' — ' + st.city : ''}</p>
+      </div>`).join('');
+    }
+  } catch (e) {}
 
-    <div style="display:flex;gap:1rem;margin:1.5rem 0;flex-wrap:wrap">
-      <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:100px;text-align:center">
-        <div style="font-size:1.5rem;font-weight:700;color:var(--accent)">${data.avg_dynamic_range}</div>
-        <div style="font-size:0.75rem;color:var(--text-dim)">Avg Dynamic Range</div>
+  if (!storyFeed) {
+    storyFeed = `<div style="padding:2rem;background:var(--bg-card);border-radius:var(--radius);text-align:center">
+      <p style="color:var(--text-muted);font-size:1rem;margin:0 0 0.5rem 0">No stories yet.</p>
+      <p style="color:var(--text-dim);font-size:0.85rem;margin:0">Click any song and share what it means to you. Be the first voice on this wall.</p>
+    </div>`;
+  }
+
+  app.innerHTML = `<div style="max-width:760px;margin:0 auto">
+    <div style="margin-bottom:2rem">
+      <h1 style="margin-bottom:0.25rem">${data.artist}</h1>
+      <p style="color:var(--text-muted);font-size:1.05rem;font-style:italic;margin:0">${personality}</p>
+    </div>
+
+    <div style="display:flex;gap:1rem;margin-bottom:2.5rem;flex-wrap:wrap">
+      <div style="padding:1rem 1.5rem;background:var(--bg-card);border-radius:var(--radius-sm);text-align:center;flex:1;min-width:100px">
+        <div style="font-size:2rem;font-weight:700;color:var(--accent)">${data.avg_dynamic_range}</div>
+        <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em">Avg Intensity</div>
       </div>
-      <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:100px;text-align:center">
-        <div style="font-size:1.5rem;font-weight:700;color:var(--safe)">${data.levels.safe}</div>
-        <div style="font-size:0.75rem;color:var(--text-dim)">Safe</div>
-      </div>
-      <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:100px;text-align:center">
-        <div style="font-size:1.5rem;font-weight:700;color:var(--moderate)">${data.levels.moderate}</div>
-        <div style="font-size:0.75rem;color:var(--text-dim)">Moderate</div>
-      </div>
-      <div style="padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);flex:1;min-width:100px;text-align:center">
-        <div style="font-size:1.5rem;font-weight:700;color:var(--intense)">${data.levels.intense}</div>
-        <div style="font-size:0.75rem;color:var(--text-dim)">Intense</div>
+      <div style="padding:1rem 1.5rem;background:var(--bg-card);border-radius:var(--radius-sm);text-align:center;flex:1;min-width:100px">
+        <div style="font-size:2rem;font-weight:700;color:var(--text)">${data.song_count}</div>
+        <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em">Songs Decoded</div>
       </div>
     </div>
 
-    <h2>Every Song, Decoded</h2>
-    <div style="display:flex;flex-direction:column;gap:0.5rem">${songRows}</div>
-
-    <div style="margin-top:2rem">
-      <a href="/library" data-link style="color:var(--accent)">&larr; Back to Library</a>
-      &nbsp;&nbsp;
-      <a href="/check" data-link style="color:var(--accent)">Check another song &rarr;</a>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem">
+      <div>
+        ${loud.length > 0 ? `<h2 style="font-size:1rem;color:var(--intense);margin-bottom:0.75rem">The songs that hit hardest</h2>
+        <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:2rem">${loud.map(sc).join('')}</div>` : ''}
+        ${mid.length > 0 ? `<h2 style="font-size:1rem;color:var(--moderate);margin-bottom:0.75rem">The controlled burn</h2>
+        <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:2rem">${mid.map(sc).join('')}</div>` : ''}
+        ${quiet.length > 0 ? `<h2 style="font-size:1rem;color:var(--safe);margin-bottom:0.75rem">The quiet ones</h2>
+        <div style="display:flex;flex-direction:column;gap:0.5rem">${quiet.map(sc).join('')}</div>` : ''}
+      </div>
+      <div>
+        <h2 style="font-size:1rem;color:var(--accent);margin-bottom:0.75rem">The Wall &mdash; Fan Stories</h2>
+        <div style="display:flex;flex-direction:column;gap:0.75rem">${storyFeed}</div>
+      </div>
     </div>
+
+    <div style="margin-top:2.5rem;padding:1.25rem;background:rgba(212,149,106,0.06);border-radius:var(--radius);border:1px solid rgba(212,149,106,0.15);text-align:center">
+      <p style="color:var(--text);font-size:0.95rem;margin:0 0 0.75rem 0">Know a ${data.artist} song we haven't decoded yet?</p>
+      <a href="/check" data-link style="display:inline-block;padding:0.6rem 1.5rem;background:var(--accent);color:var(--bg);border-radius:var(--radius-sm);text-decoration:none;font-weight:600">Check a Song</a>
+    </div>
+
+    <div style="margin-top:1.5rem"><a href="/library" data-link style="color:var(--accent)">&larr; Back to Library</a></div>
   </div>`;
 }
 
