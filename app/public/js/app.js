@@ -330,8 +330,13 @@ async function renderSong(slug) {
         <button class="add-to-pl-btn-large" id="add-song-btn" style="margin-top:0.75rem">+ Playlist</button>
       </div>
     </div>
+    <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem;flex-wrap:wrap">
+      <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(s.title + ' by ' + s.artist + ': DR ' + s.dynamic_range + '/10, ' + s.texture + ' texture. See the full DNA →')}&url=${encodeURIComponent('https://musiciwant.com/song/' + slug)}" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#1DA1F2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Share on X</a>
+      <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent('https://musiciwant.com/song/' + slug)}" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#4267B2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Facebook</a>
+      <button onclick="navigator.clipboard.writeText('https://musiciwant.com/song/${slug}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Link',2000)" style="padding:0.4rem 0.8rem;background:var(--bg-hover);color:var(--text);border:1px solid var(--bg-hover);border-radius:6px;font-size:0.8rem;cursor:pointer;font-weight:600">Copy Link</button>
+    </div>
     <div class="sensory-card">
-      <h2>Sensory Profile</h2>
+      <h2>Song DNA</h2>
       <div class="rating-row"><span class="rating-label">Dynamic Range</span><span class="rating-value">${s.dynamic_range}/10 <span class="dr-bar"><span class="dr-fill" style="width:${s.dynamic_range*10}%"></span></span></span></div>
       <div class="rating-row"><span class="rating-label">Sudden Changes</span><span class="rating-value ${sc}">${s.sudden_changes}</span></div>
       <div class="rating-row"><span class="rating-label">Texture</span><span class="rating-value">${s.texture}</span></div>
@@ -360,13 +365,12 @@ async function renderSong(slug) {
 
     <div class="affiliate-section">
       <span class="affiliate-disclosure">affiliate links</span>
-      <h3>Listen with care</h3>
-      <p>For sensory-sensitive listening, the right headphones matter. Over-ear, noise-canceling, with gentle clamping pressure.</p>
+      <h3>Hear it the way it was made</h3>
+      <p style="font-size:0.85rem;color:var(--text-muted)">The right gear changes everything.</p>
       <div class="affiliate-links">
-        <a href="https://www.ebay.com/sch/i.html?_nkw=noise+cancelling+headphones+comfortable&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">Noise-Canceling Headphones</a>
-        <a href="https://www.ebay.com/sch/i.html?_nkw=weighted+blanket&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">Weighted Blankets</a>
+        <a href="https://www.ebay.com/sch/i.html?_nkw=studio+headphones&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">Studio Headphones</a>
         ${s.artist ? `<a href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(s.artist + ' vinyl')}&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">${s.artist} on Vinyl</a>` : ''}
-        <a href="https://www.ebay.com/sch/i.html?_nkw=sensory+fidget+tools&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">Sensory Tools</a>
+        ${s.artist ? `<a href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(s.artist + ' merch')}&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">${s.artist} Merch</a>` : ''}
       </div>
     </div>
 

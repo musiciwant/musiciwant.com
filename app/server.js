@@ -1492,6 +1492,57 @@ function renderFanStoriesSection(slug) {
   </script>`;
 }
 
+function renderDNAMatchSection(song) {
+  // Find songs with matching DNA across ALL artists (not just safer ones)
+  const drRange = 1;
+  const candidates = db.prepare(`
+    SELECT slug, title, artist, sensory_level, dynamic_range, texture, bpm
+    FROM songs
+    WHERE id != ? AND texture = ? AND ABS(dynamic_range - ?) <= ?
+    ORDER BY RANDOM() LIMIT 6
+  `).all(song.id, song.texture, song.dynamic_range, drRange);
+
+  if (candidates.length === 0) return '';
+
+  const cards = candidates.map(c => {
+    const sl = c.sensory_level === 'safe' ? 'badge-safe' : c.sensory_level === 'moderate' ? 'badge-moderate' : 'badge-intense';
+    return `<a href="/song/${c.slug}" style="display:block;padding:0.75rem;background:var(--bg-card);border-radius:var(--radius-sm);text-decoration:none;color:var(--text)">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><strong>${esc(c.title)}</strong><br><span style="font-size:0.8rem;color:var(--text-muted)">${esc(c.artist)}</span></div>
+        <div style="text-align:right"><span class="badge ${sl}" style="font-size:0.65rem">${c.sensory_level}</span><br><span style="font-size:0.75rem;color:var(--text-dim)">DR ${c.dynamic_range}</span></div>
+      </div>
+    </a>`;
+  }).join('');
+
+  return `<div style="margin-top:2rem;padding:1.25rem;background:var(--bg-sidebar);border-radius:var(--radius);border:1px solid var(--bg-hover)">
+    <h3 style="margin:0 0 0.25rem 0;font-size:1rem;color:var(--accent)">Songs with the same DNA</h3>
+    <p style="font-size:0.8rem;color:var(--text-dim);margin:0 0 1rem 0">${esc(song.texture)} texture, similar intensity — across any genre or era.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">${cards}</div>
+  </div>`;
+}
+
+function renderKeepExploringSection(song) {
+  // Get 3 random songs from same artist + 3 random from any artist
+  const sameArtist = db.prepare('SELECT slug, title, artist, sensory_level FROM songs WHERE artist = ? AND id != ? ORDER BY RANDOM() LIMIT 3').all(song.artist, song.id);
+  const random = db.prepare('SELECT slug, title, artist, sensory_level FROM songs WHERE id != ? ORDER BY RANDOM() LIMIT 3').all(song.id);
+  const all = [...sameArtist, ...random];
+  if (all.length === 0) return '';
+
+  const cards = all.map(s => {
+    const sl = s.sensory_level === 'safe' ? 'badge-safe' : s.sensory_level === 'moderate' ? 'badge-moderate' : 'badge-intense';
+    return `<a href="/song/${s.slug}" style="padding:0.6rem;background:var(--bg-card);border-radius:var(--radius-sm);text-decoration:none;color:var(--text);text-align:center">
+      <strong style="font-size:0.85rem">${esc(s.title)}</strong><br>
+      <span style="font-size:0.75rem;color:var(--text-muted)">${esc(s.artist)}</span>
+      <span class="badge ${sl}" style="font-size:0.6rem;margin-left:0.3rem">${s.sensory_level}</span>
+    </a>`;
+  }).join('');
+
+  return `<div style="margin-top:2rem">
+    <h3 style="color:var(--accent);font-size:1rem;margin-bottom:0.75rem">Keep exploring</h3>
+    <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:0.5rem">${cards}</div>
+  </div>`;
+}
+
 function renderAlternativesSection(song) {
   if (song.sensory_level === 'safe') return '';
 
@@ -1576,8 +1627,14 @@ function renderSongPage(song, isChecker) {
           </div>
         </div>
 
+        <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem;flex-wrap:wrap">
+          <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(song.title + ' by ' + song.artist + ': DR ' + song.dynamic_range + '/10, ' + song.texture + ' texture. See the full DNA →')}&url=${encodeURIComponent('https://musiciwant.com/song/' + song.slug)}" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#1DA1F2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Share on X</a>
+          <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent('https://musiciwant.com/song/' + song.slug)}" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#4267B2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Facebook</a>
+          <button onclick="navigator.clipboard.writeText('https://musiciwant.com/song/${song.slug}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Link',2000)" style="padding:0.4rem 0.8rem;background:var(--bg-hover);color:var(--text);border:1px solid var(--bg-hover);border-radius:6px;font-size:0.8rem;cursor:pointer;font-weight:600">Copy Link</button>
+        </div>
+
         <div class="sensory-card">
-          <h2>Sensory Profile</h2>
+          <h2>Song DNA</h2>
           <div class="rating-row"><span class="rating-label">Dynamic Range</span><span class="rating-value">${song.dynamic_range}/10</span></div>
           <div class="rating-row"><span class="rating-label">Sudden Changes</span><span class="rating-value ${sc}">${song.sudden_changes}</span></div>
           <div class="rating-row"><span class="rating-label">Texture</span><span class="rating-value">${song.texture}</span></div>
@@ -1616,20 +1673,25 @@ function renderSongPage(song, isChecker) {
 
         <div class="affiliate-section">
           <span class="affiliate-disclosure">affiliate links</span>
-          <h3>Listen with care</h3>
-          <p>For sensory-sensitive listening, the right headphones matter.</p>
+          <h3>Hear it the way it was made</h3>
+          <p style="font-size:0.85rem;color:var(--text-muted)">The right gear changes everything.</p>
           <div class="affiliate-links">
-            <a href="https://www.ebay.com/sch/i.html?_nkw=noise+cancelling+headphones&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">Noise-Canceling Headphones</a>
+            <a href="https://www.ebay.com/sch/i.html?_nkw=noise+cancelling+headphones&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">Studio Headphones</a>
             <a href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(song.artist + ' vinyl')}&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">${esc(song.artist)} on Vinyl</a>
+            <a href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(song.artist + ' merch')}&mkcid=1&mkrid=711-53200-19255-0&campid=5339144864&toolid=10001" class="affiliate-link" rel="noopener nofollow" target="_blank">${esc(song.artist)} Merch</a>
           </div>
         </div>
 
         ${song.moods && song.moods.length ? `<p style="color:var(--text-dim);font-size:0.8rem">Moods: ${song.moods.join(', ')}</p>` : ''}
         ${song.traditions && song.traditions.length ? `<p style="color:var(--text-dim);font-size:0.8rem">Traditions: ${song.traditions.join(', ')}</p>` : ''}
 
+        ${renderDNAMatchSection(song)}
+
         ${renderAlternativesSection(song)}
 
         ${renderFanStoriesSection(song.slug)}
+
+        ${renderKeepExploringSection(song)}
 
         <div style="margin-top:2rem">
           <a href="/artist/${song.artist.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}" style="color:var(--accent)">&larr; All ${esc(song.artist)} songs</a>
