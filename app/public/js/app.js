@@ -102,6 +102,8 @@ function route() {
   else if (p === '/request') renderRequestArtist();
   else if (p === '/wall') renderWall();
   else if (p === '/profile') renderProfile();
+  else if (p === '/battle') renderBattle();
+  else if (p === '/one') renderOneSong();
   else if (p.startsWith('/check/')) renderSong(p.replace('/check/', ''));
   else if (p.startsWith('/artist/')) renderArtist(p.replace('/artist/', ''));
   else if (p.startsWith('/song/')) renderSong(p.replace('/song/', ''));
@@ -334,7 +336,9 @@ async function renderSong(slug) {
       <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(s.title + ' by ' + s.artist + ': DR ' + s.dynamic_range + '/10, ' + s.texture + ' texture. See the full DNA →')}&url=${encodeURIComponent('https://musiciwant.com/song/' + slug)}" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#1DA1F2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Share on X</a>
       <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent('https://musiciwant.com/song/' + slug)}" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#4267B2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Facebook</a>
       <button onclick="navigator.clipboard.writeText('https://musiciwant.com/song/${slug}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Link',2000)" style="padding:0.4rem 0.8rem;background:var(--bg-hover);color:var(--text);border:1px solid var(--bg-hover);border-radius:6px;font-size:0.8rem;cursor:pointer;font-weight:600">Copy Link</button>
+      <button id="gen-song-card" style="padding:0.4rem 0.8rem;background:var(--accent);color:var(--bg);border:none;border-radius:6px;font-size:0.8rem;cursor:pointer;font-weight:600">Generate Card</button>
     </div>
+    <div id="song-card-preview"></div>
     <div class="sensory-card">
       <h2>Song DNA</h2>
       <div class="rating-row"><span class="rating-label">Dynamic Range</span><span class="rating-value">${s.dynamic_range}/10 <span class="dr-bar"><span class="dr-fill" style="width:${s.dynamic_range*10}%"></span></span></span></div>
@@ -384,6 +388,21 @@ async function renderSong(slug) {
     </div>
   </div>`;
   document.getElementById('add-song-btn')?.addEventListener('click', () => showPlaylistModal(s));
+  document.getElementById('gen-song-card')?.addEventListener('click', () => {
+    const canvas = generateCard({
+      title: s.title,
+      artist: s.artist,
+      subtitle: s.album ? s.album + (s.year ? ' (' + s.year + ')' : '') : '',
+      stats: [
+        { value: s.dynamic_range + '/10', label: 'INTENSITY', color: '#d4956a' },
+        { value: s.texture, label: 'TEXTURE', color: '#e8e4df' },
+        { value: s.predictability, label: 'PREDICTABILITY', color: '#8a8580' },
+        { value: s.vocal_style, label: 'VOCALS', color: '#c4a94d' }
+      ],
+      bodyText: s.sensory_notes || s.description || ''
+    });
+    showCardPreview(canvas, 'song-card-preview');
+  });
 
   // Load safe alternatives for moderate/intense songs
   if (s.sensory_level !== 'safe') {
@@ -444,7 +463,7 @@ async function renderSong(slug) {
           body: JSON.stringify({ song_slug: slug, name, city: document.getElementById('sf-city').value.trim(), story, lyric: document.getElementById('sf-lyric').value.trim() })
         });
         const d = await res.json();
-        if (d.ok) document.getElementById('story-form-wrap').innerHTML = '<p style="color:var(--safe)">Thank you. Your story is now part of this song.</p>';
+        if (d.ok) document.getElementById('story-form-wrap').innerHTML = '<p style="color:var(--safe)">Thank you. Your story is now part of this song.</p><div style="margin-top:0.75rem;display:flex;gap:0.5rem"><a href="https://twitter.com/intent/tweet?text='+encodeURIComponent('I just shared what this song means to me on Music I Want →')+'" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#1DA1F2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Share on X</a><a href="https://www.facebook.com/sharer/sharer.php?u='+encodeURIComponent(window.location.href)+'" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#4267B2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Facebook</a><button onclick="navigator.clipboard.writeText(window.location.href);this.textContent=\\'Copied!\\'" style="padding:0.4rem 0.8rem;background:var(--bg-hover);color:var(--text);border:1px solid var(--bg-hover);border-radius:6px;font-size:0.8rem;cursor:pointer;font-weight:600">Copy Link</button></div>';
         else showToast(d.error || 'Something went wrong');
       });
     }
@@ -584,7 +603,7 @@ async function renderArtist(name) {
       body: JSON.stringify({ song_slug: song, name: sname, city: document.getElementById('asf-city').value.trim(), story, lyric: document.getElementById('asf-lyric').value.trim(), email: document.getElementById('asf-email').value.trim() })
     });
     const d = await res.json();
-    if (d.ok) document.getElementById('asf-wrap').innerHTML = '<p style="color:var(--safe);font-size:0.95rem">Thank you. Your story is now part of the wall.</p>';
+    if (d.ok) document.getElementById('asf-wrap').innerHTML = '<p style="color:var(--safe);font-size:0.95rem">Thank you. Your story is now part of the wall.</p><div style="margin-top:0.75rem;display:flex;gap:0.5rem"><a href="https://twitter.com/intent/tweet?text='+encodeURIComponent('I just shared my music story on Music I Want →')+'" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#1DA1F2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Share on X</a><a href="https://www.facebook.com/sharer/sharer.php?u='+encodeURIComponent(window.location.href)+'" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#4267B2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Facebook</a><button onclick="navigator.clipboard.writeText(window.location.href);this.textContent=\\'Copied!\\'" style="padding:0.4rem 0.8rem;background:var(--bg-hover);color:var(--text);border:1px solid var(--bg-hover);border-radius:6px;font-size:0.8rem;cursor:pointer;font-weight:600">Copy Link</button></div>';
     else showToast(d.error || 'Something went wrong');
   });
 }
@@ -1232,6 +1251,323 @@ function renderRequestArtist() {
     const d = await res.json();
     if (d.ok) document.getElementById('req-form').innerHTML = '<p style="color:var(--safe);font-size:1.1rem;text-align:center;padding:2rem 0">Request received. We\\'ll decode their catalog soon.</p>';
     else showToast(d.error || 'Something went wrong');
+  });
+}
+
+// --- Shareable Card Generator (client-side Canvas) ---
+function generateCard(opts) {
+  // opts: { title, artist, subtitle, bodyText, stats, watermark, width, height }
+  const w = opts.width || 1080;
+  const h = opts.height || 1080;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+
+  // Background gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, '#0a0a10');
+  grad.addColorStop(0.5, '#12121c');
+  grad.addColorStop(1, '#0a0a10');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Accent line at top
+  ctx.fillStyle = '#d4956a';
+  ctx.fillRect(60, 60, 80, 4);
+
+  // Title
+  ctx.fillStyle = '#e8e4df';
+  ctx.font = 'bold 52px Georgia, serif';
+  ctx.fillText(opts.title || '', 60, 130, w - 120);
+
+  // Artist
+  ctx.fillStyle = '#d4956a';
+  ctx.font = '32px -apple-system, sans-serif';
+  ctx.fillText(opts.artist || '', 60, 175, w - 120);
+
+  // Subtitle
+  if (opts.subtitle) {
+    ctx.fillStyle = '#8a8580';
+    ctx.font = '22px -apple-system, sans-serif';
+    ctx.fillText(opts.subtitle, 60, 220, w - 120);
+  }
+
+  // Stats boxes
+  if (opts.stats && opts.stats.length) {
+    const boxW = (w - 120 - (opts.stats.length - 1) * 15) / opts.stats.length;
+    opts.stats.forEach((stat, i) => {
+      const x = 60 + i * (boxW + 15);
+      const y = 270;
+      ctx.fillStyle = '#15151f';
+      ctx.beginPath();
+      ctx.roundRect(x, y, boxW, 100, 12);
+      ctx.fill();
+      ctx.fillStyle = stat.color || '#d4956a';
+      ctx.font = 'bold 36px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(stat.value, x + boxW/2, y + 48);
+      ctx.fillStyle = '#5a5550';
+      ctx.font = '14px -apple-system, sans-serif';
+      ctx.fillText(stat.label, x + boxW/2, y + 78);
+      ctx.textAlign = 'left';
+    });
+  }
+
+  // Body text — word wrap
+  if (opts.bodyText) {
+    ctx.fillStyle = '#e8e4df';
+    ctx.font = '24px Georgia, serif';
+    const words = opts.bodyText.split(' ');
+    let line = '';
+    let y = opts.stats?.length ? 420 : 270;
+    const maxW = w - 120;
+    for (const word of words) {
+      const test = line + word + ' ';
+      if (ctx.measureText(test).width > maxW && line) {
+        ctx.fillText(line.trim(), 60, y);
+        line = word + ' ';
+        y += 36;
+        if (y > h - 120) break;
+      } else { line = test; }
+    }
+    if (line && y <= h - 120) ctx.fillText(line.trim(), 60, y);
+  }
+
+  // Word cloud
+  if (opts.wordCloud && opts.wordCloud.length) {
+    const cloudY = opts.stats?.length ? (opts.bodyText ? 600 : 420) : 300;
+    ctx.textAlign = 'center';
+    const maxFont = 48, minFont = 16;
+    const maxCount = opts.wordCloud[0]?.count || 1;
+    let cx = w/2, cy = cloudY;
+    const placed = [];
+    for (const word of opts.wordCloud.slice(0, 30)) {
+      const fontSize = minFont + (word.count / maxCount) * (maxFont - minFont);
+      ctx.font = `bold ${Math.round(fontSize)}px -apple-system, sans-serif`;
+      const colors = ['#d4956a', '#4a9e6f', '#c4a94d', '#b85c5c', '#e8e4df', '#8a8580'];
+      ctx.fillStyle = colors[placed.length % colors.length];
+      // Simple spiral placement
+      let angle = placed.length * 0.7;
+      let radius = placed.length * 12;
+      let px = w/2 + Math.cos(angle) * radius;
+      let py = cloudY + Math.sin(angle) * radius;
+      if (px < 80) px = 80; if (px > w-80) px = w-80;
+      if (py < cloudY - 150) py = cloudY - 150; if (py > cloudY + 200) py = cloudY + 200;
+      ctx.fillText(word.text, px, py);
+      placed.push({ x: px, y: py });
+    }
+    ctx.textAlign = 'left';
+  }
+
+  // Watermark
+  ctx.fillStyle = '#3a3530';
+  ctx.font = '18px -apple-system, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('musiciwant.com', w - 60, h - 40);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#d4956a';
+  ctx.font = '20px Georgia, serif';
+  ctx.fillText('Music I Want', 60, h - 40);
+
+  return c;
+}
+
+function downloadCard(canvas, filename) {
+  const link = document.createElement('a');
+  link.download = filename || 'musiciwant-card.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+}
+
+function showCardPreview(canvas, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const img = document.createElement('img');
+  img.src = canvas.toDataURL('image/png');
+  img.style.cssText = 'width:100%;border-radius:12px;margin-bottom:1rem';
+  container.innerHTML = '';
+  container.appendChild(img);
+  const dl = document.createElement('button');
+  dl.className = 'cta-primary';
+  dl.textContent = 'Download Card';
+  dl.style.marginRight = '0.5rem';
+  dl.addEventListener('click', () => downloadCard(canvas, 'my-song-dna.png'));
+  container.appendChild(dl);
+  const shareBtn = document.createElement('a');
+  shareBtn.href = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent('My Song DNA on Music I Want →') + '&url=' + encodeURIComponent(window.location.href);
+  shareBtn.target = '_blank';
+  shareBtn.className = 'cta-primary';
+  shareBtn.style.cssText = 'background:#1DA1F2;display:inline-block;text-decoration:none;margin-right:0.5rem';
+  shareBtn.textContent = 'Share on X';
+  container.appendChild(shareBtn);
+}
+
+// --- Song Battle ---
+async function renderBattle() {
+  app.innerHTML = '<p>Loading songs...</p>';
+  const allSongs = await api('/api/songs?sort=dynamic_range_desc');
+  if (allSongs.length < 10) { app.innerHTML = '<h1>Not enough songs for a battle yet!</h1>'; return; }
+
+  let round = 0;
+  const maxRounds = 10;
+  const picks = [];
+  let pool = [...allSongs].sort(() => Math.random() - 0.5);
+
+  function showRound() {
+    if (round >= maxRounds || pool.length < 2) { showResults(); return; }
+    const a = pool.shift();
+    const b = pool.shift();
+    const slA = a.sensory_level === 'safe' ? 'badge-safe' : a.sensory_level === 'moderate' ? 'badge-moderate' : 'badge-intense';
+    const slB = b.sensory_level === 'safe' ? 'badge-safe' : b.sensory_level === 'moderate' ? 'badge-moderate' : 'badge-intense';
+
+    app.innerHTML = `
+      <div style="max-width:760px;margin:0 auto;text-align:center">
+        <h1>Song Battle</h1>
+        <p style="color:var(--text-dim);font-size:0.85rem">Round ${round + 1} of ${maxRounds}</p>
+        <div style="background:var(--bg-hover);height:4px;border-radius:2px;margin-bottom:2rem">
+          <div style="background:var(--accent);height:100%;border-radius:2px;width:${(round / maxRounds) * 100}%;transition:width 0.3s"></div>
+        </div>
+        <h2 style="color:var(--text-muted);font-size:1rem;margin-bottom:1.5rem">Which one hits harder?</h2>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
+          <button class="battle-pick" data-pick="a" style="padding:2rem;background:var(--bg-card);border:2px solid var(--bg-hover);border-radius:var(--radius);cursor:pointer;text-align:center;color:var(--text);transition:border-color 0.15s">
+            <div style="font-size:1.3rem;font-weight:700;margin-bottom:0.5rem">${a.title}</div>
+            <div style="color:var(--accent);font-size:0.95rem;margin-bottom:0.5rem">${a.artist}</div>
+            <span class="badge ${slA}">${a.sensory_level}</span>
+            <span style="color:var(--text-dim);font-size:0.8rem;margin-left:0.5rem">DR ${a.dynamic_range}</span>
+          </button>
+          <button class="battle-pick" data-pick="b" style="padding:2rem;background:var(--bg-card);border:2px solid var(--bg-hover);border-radius:var(--radius);cursor:pointer;text-align:center;color:var(--text);transition:border-color 0.15s">
+            <div style="font-size:1.3rem;font-weight:700;margin-bottom:0.5rem">${b.title}</div>
+            <div style="color:var(--accent);font-size:0.95rem;margin-bottom:0.5rem">${b.artist}</div>
+            <span class="badge ${slB}">${b.sensory_level}</span>
+            <span style="color:var(--text-dim);font-size:0.8rem;margin-left:0.5rem">DR ${b.dynamic_range}</span>
+          </button>
+        </div>
+      </div>`;
+    document.querySelectorAll('.battle-pick').forEach(btn => {
+      btn.addEventListener('mouseenter', () => btn.style.borderColor = 'var(--accent)');
+      btn.addEventListener('mouseleave', () => btn.style.borderColor = 'var(--bg-hover)');
+      btn.addEventListener('click', () => {
+        picks.push(btn.dataset.pick === 'a' ? a : b);
+        round++;
+        showRound();
+      });
+    });
+  }
+
+  function showResults() {
+    const avgDR = (picks.reduce((s, p) => s + p.dynamic_range, 0) / picks.length).toFixed(1);
+    const textures = {};
+    const levels = {};
+    picks.forEach(p => { textures[p.texture] = (textures[p.texture]||0)+1; levels[p.sensory_level] = (levels[p.sensory_level]||0)+1; });
+    const topTexture = Object.entries(textures).sort((a,b) => b[1]-a[1])[0]?.[0] || '?';
+    const topLevel = Object.entries(levels).sort((a,b) => b[1]-a[1])[0]?.[0] || '?';
+
+    const personality = avgDR >= 7 ? "You chase intensity. The louder the crescendo, the more alive you feel."
+      : avgDR >= 5 ? "You live in the tension between control and release. You want music that earns its moments."
+      : "You're drawn to the quiet power. The songs that hold back hit you hardest.";
+
+    app.innerHTML = `
+      <div style="max-width:640px;margin:0 auto;text-align:center">
+        <h1>Your Battle Results</h1>
+        <p style="color:var(--text-muted);font-style:italic;font-size:1.1rem;margin-bottom:2rem">${personality}</p>
+        <div style="display:flex;gap:1rem;justify-content:center;margin-bottom:2rem;flex-wrap:wrap">
+          <div style="padding:1rem 1.5rem;background:var(--bg-card);border-radius:var(--radius-sm);text-align:center">
+            <div style="font-size:2rem;font-weight:700;color:var(--accent)">${avgDR}</div>
+            <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase">Avg Intensity</div>
+          </div>
+          <div style="padding:1rem 1.5rem;background:var(--bg-card);border-radius:var(--radius-sm);text-align:center">
+            <div style="font-size:2rem;font-weight:700;color:var(--text)">${topTexture}</div>
+            <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase">Preferred Texture</div>
+          </div>
+          <div style="padding:1rem 1.5rem;background:var(--bg-card);border-radius:var(--radius-sm);text-align:center">
+            <div style="font-size:2rem;font-weight:700;color:var(--text)">${topLevel}</div>
+            <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase">Drawn To</div>
+          </div>
+        </div>
+        <h3 style="color:var(--accent);font-size:0.9rem;margin-bottom:0.75rem">Your picks</h3>
+        <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1.5rem;text-align:left">
+          ${picks.map(p => `<a href="/song/${p.slug}" data-link style="padding:0.6rem;background:var(--bg-card);border-radius:var(--radius-sm);text-decoration:none;color:var(--text)"><strong>${p.title}</strong> <span style="color:var(--text-muted)">— ${p.artist}</span></a>`).join('')}
+        </div>
+        <div id="battle-card-preview" style="margin-bottom:1rem"></div>
+        <div style="display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap">
+          <button class="cta-primary" id="battle-gen-card">Generate My Card</button>
+          <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent('My music DNA: avg intensity ' + avgDR + ', drawn to ' + topTexture + ' texture. What are you? →')}&url=${encodeURIComponent('https://musiciwant.com/battle')}" target="_blank" class="cta-primary" style="background:#1DA1F2;text-decoration:none">Share on X</a>
+          <button class="cta-secondary" onclick="location.reload()">Battle Again</button>
+        </div>
+      </div>`;
+    document.getElementById('battle-gen-card')?.addEventListener('click', () => {
+      const canvas = generateCard({
+        title: 'My Song Battle',
+        artist: 'musiciwant.com',
+        subtitle: personality,
+        stats: [
+          { value: avgDR, label: 'AVG INTENSITY', color: '#d4956a' },
+          { value: topTexture, label: 'TEXTURE', color: '#e8e4df' },
+          { value: topLevel, label: 'DRAWN TO', color: topLevel === 'intense' ? '#b85c5c' : topLevel === 'moderate' ? '#c4a94d' : '#4a9e6f' }
+        ],
+        bodyText: 'My picks: ' + picks.map(p => p.title + ' — ' + p.artist).join(', ')
+      });
+      showCardPreview(canvas, 'battle-card-preview');
+    });
+  }
+
+  showRound();
+}
+
+// --- 1-Song Challenge ---
+async function renderOneSong() {
+  app.innerHTML = `
+    <div style="max-width:560px;margin:0 auto;text-align:center">
+      <h1>The One Song Challenge</h1>
+      <p style="color:var(--text-muted);font-size:1.1rem;margin-bottom:2rem">If you could only listen to one song for the rest of your life, what would it be?</p>
+      <div style="margin-bottom:1.5rem">
+        <input type="text" id="one-title" placeholder="Song title" class="filter-input" style="width:100%;padding:0.75rem;font-size:1rem;margin-bottom:0.75rem">
+        <input type="text" id="one-artist" placeholder="Artist" class="filter-input" style="width:100%;padding:0.75rem;font-size:1rem;margin-bottom:0.75rem">
+        <textarea id="one-why" placeholder="Why this song? One sentence." maxlength="200" rows="2" class="filter-input" style="width:100%;padding:0.75rem;font-size:1rem;resize:none"></textarea>
+      </div>
+      <button class="cta-primary" style="width:100%;padding:0.75rem;font-size:1rem" id="one-submit">This Is My Song</button>
+      <div id="one-result" style="margin-top:1.5rem"></div>
+    </div>`;
+
+  document.getElementById('one-submit').addEventListener('click', async () => {
+    const title = document.getElementById('one-title').value.trim();
+    const artist = document.getElementById('one-artist').value.trim();
+    const why = document.getElementById('one-why').value.trim();
+    if (!title || !artist) { showToast('Enter a song and artist'); return; }
+
+    // Check the song
+    const res = await fetch('/api/check', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ title, artist }) });
+    const d = await res.json();
+    const song = d.song || { title, artist, dynamic_range: '?', texture: '?', sensory_level: '?' };
+
+    // Generate card
+    const canvas = generateCard({
+      title: song.title || title,
+      artist: song.artist || artist,
+      subtitle: 'My one song. Forever.',
+      stats: song.dynamic_range !== '?' ? [
+        { value: song.dynamic_range + '/10', label: 'INTENSITY', color: '#d4956a' },
+        { value: song.texture || '?', label: 'TEXTURE', color: '#e8e4df' },
+        { value: song.sensory_level || '?', label: 'LEVEL', color: song.sensory_level === 'intense' ? '#b85c5c' : song.sensory_level === 'moderate' ? '#c4a94d' : '#4a9e6f' }
+      ] : [],
+      bodyText: why || ''
+    });
+
+    const result = document.getElementById('one-result');
+    result.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = canvas.toDataURL('image/png');
+    img.style.cssText = 'width:100%;border-radius:12px;margin-bottom:1rem';
+    result.appendChild(img);
+
+    result.innerHTML += `
+      <div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap">
+        <button class="cta-primary" id="one-dl">Download Card</button>
+        <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent('My one song forever: ' + title + ' by ' + artist + (why ? '. ' + why : '') + ' →')}&url=${encodeURIComponent('https://musiciwant.com/one')}" target="_blank" class="cta-primary" style="background:#1DA1F2;text-decoration:none">Share on X</a>
+        <a href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent('https://musiciwant.com/one')}" target="_blank" class="cta-primary" style="background:#4267B2;text-decoration:none">Facebook</a>
+      </div>
+      <p style="color:var(--text-dim);margin-top:1rem;font-size:0.85rem">Challenge your friends: what's THEIR one song?</p>`;
+    document.getElementById('one-dl')?.addEventListener('click', () => downloadCard(canvas, 'my-one-song.png'));
   });
 }
 

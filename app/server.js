@@ -1358,7 +1358,7 @@ app.get('/artist/:name', (req, res) => {
                     method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({ song_slug: song, name: name, city: document.getElementById('asf-city').value.trim(), story: story, lyric: document.getElementById('asf-lyric').value.trim(), email: document.getElementById('asf-email').value.trim() })
                   }).then(function(r) { return r.json(); }).then(function(d) {
-                    if (d.ok) { e.target.innerHTML = '<p style="color:var(--safe);font-size:0.95rem">Thank you. Your story is now part of the wall.</p>'; }
+                    if (d.ok) { e.target.innerHTML = '<p style="color:var(--safe);font-size:0.95rem">Thank you. Your story is now part of the wall.</p><div style="margin-top:0.75rem;display:flex;gap:0.5rem"><a href="https://twitter.com/intent/tweet?text='+encodeURIComponent('I just shared my music story on Music I Want →')+'" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#1DA1F2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Share on X</a><button onclick="navigator.clipboard.writeText(window.location.href);this.textContent=\\'Copied!\\'" style="padding:0.4rem 0.8rem;background:var(--bg-hover);color:var(--text);border:1px solid var(--bg-hover);border-radius:6px;font-size:0.8rem;cursor:pointer;font-weight:600">Copy Link</button></div>'; }
                     else { alert(d.error || 'Something went wrong'); }
                   });
                 });
@@ -1484,7 +1484,7 @@ function renderFanStoriesSection(slug) {
         lyric: f.lyric.value
       })
     }).then(r => r.json()).then(d => {
-      if (d.ok) { f.innerHTML = '<p style="color:var(--safe)">Thank you. Your story is now part of this song.</p>'; }
+      if (d.ok) { f.innerHTML = '<p style="color:var(--safe)">Thank you. Your story is now part of this song.</p><div style="margin-top:0.75rem;display:flex;gap:0.5rem"><a href="https://twitter.com/intent/tweet?text='+encodeURIComponent('I just shared what this song means to me on Music I Want →')+'" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#1DA1F2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Share on X</a><button onclick="navigator.clipboard.writeText(window.location.href);this.textContent=\\'Copied!\\'" style="padding:0.4rem 0.8rem;background:var(--bg-hover);color:var(--text);border:1px solid var(--bg-hover);border-radius:6px;font-size:0.8rem;cursor:pointer;font-weight:600">Copy Link</button></div>'; }
       else { alert(d.error || 'Something went wrong'); }
     });
     return false;
