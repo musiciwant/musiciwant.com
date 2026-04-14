@@ -314,10 +314,26 @@ async function loadLibrary() {
   if (list) { list.innerHTML = songs.map(s => songCard(s)).join('') || '<p style="color:var(--text-dim)">No songs match.</p>'; bindCardButtons(); }
 }
 
+// Activity tracking
+function trackView(song) {
+  try {
+    const history = JSON.parse(localStorage.getItem('miw_history') || '[]');
+    history.unshift({ slug: song.slug, title: song.title, artist: song.artist, texture: song.texture, dynamic_range: song.dynamic_range, sensory_level: song.sensory_level, vocal_style: song.vocal_style, moods: song.moods || [], time: Date.now() });
+    // Keep last 200
+    if (history.length > 200) history.length = 200;
+    localStorage.setItem('miw_history', JSON.stringify(history));
+  } catch (e) {}
+}
+function getHistory() { try { return JSON.parse(localStorage.getItem('miw_history') || '[]'); } catch { return []; } }
+
+// Stop words for word cloud
+const STOP_WORDS = new Set(['the','a','an','and','or','but','in','on','at','to','for','of','with','by','from','is','it','its','this','that','was','are','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','can','shall','not','no','nor','so','if','than','too','very','just','about','above','after','again','all','am','any','because','before','below','between','both','during','each','few','further','here','how','into','more','most','my','other','our','out','over','own','same','she','he','some','such','then','there','these','they','through','under','until','up','we','what','when','where','which','while','who','whom','why','you','your','i','me','him','her','us','them','his','my','mine','her','hers','its','our','ours','their','theirs','dont','cant','wont','aint','im','youre','hes','shes','were','theyre','ive','youve','weve','theyve','id','youd','hed','shed','wed','theyd','ill','youll','hell','shell','well','theyll','like','get','got','go','going','know','want','come','make','say','said','one','two','back','way','even','new','now','old','see','time','well','also','people','into','year','your','some','them','than','then','look','only','also','after','many','before','right','too','does','must','said','let','made','find','long','day','down','been','call','first','who','may','each','tell','still'];
+
 async function renderSong(slug) {
   app.innerHTML = '<p>Loading...</p>';
   const s = await api('/api/songs/' + slug);
   if (s.error) { app.innerHTML = '<h1>Song not found</h1>'; return; }
+  trackView(s);
   const sc = s.sudden_changes === 'none' ? 'badge-safe' : s.sudden_changes === 'mild' ? 'badge-moderate' : 'badge-intense';
   const art = s.thumbnail_url ? `<img class="song-detail-art" src="${s.thumbnail_url}" alt="${s.title}">` : '';
 
@@ -969,13 +985,54 @@ function renderProfile() {
           ${triggers.length ? `<div style="margin-top:1rem"><strong>Your triggers:</strong><div style="margin-top:0.5rem">${triggers.map(t => `<span class="rec-tag">${t}</span>`).join(' ')}</div></div>` : ''}
           ${existing.preferences ? `<div style="margin-top:1rem"><strong>You prefer:</strong> ${existing.preferences.join(', ')}</div>` : ''}
         </div>
+        <div id="profile-card-preview" style="margin-bottom:1rem"></div>
         <div style="display:flex;gap:1rem;flex-wrap:wrap">
-          <a href="/library${existing.level === 'high' ? '?sensory_level=safe' : ''}" data-link class="cta-primary">Browse Music For You</a>
-          <a href="/check" data-link class="cta-secondary">Check a Song</a>
+          <button id="gen-profile-card" class="cta-primary">Generate My Music DNA Card</button>
+          <a href="/library${existing.level === 'high' ? '?sensory_level=safe' : ''}" data-link class="cta-secondary">Browse Music For You</a>
+          <a href="/battle" data-link class="cta-secondary">Song Battle</a>
           <button id="retake-profile" class="cta-secondary">Retake Quiz</button>
         </div>
       </div>`;
     document.getElementById('retake-profile')?.addEventListener('click', () => { localStorage.removeItem('miw_sensory_profile'); renderProfile(); });
+    document.getElementById('gen-profile-card')?.addEventListener('click', () => {
+      const history = getHistory();
+      // Build word cloud from song titles, artists, moods, textures
+      const wordCounts = {};
+      history.forEach(h => {
+        const words = [h.title, h.artist, ...(h.moods || []), h.texture, h.sensory_level].join(' ').toLowerCase().split(/[^a-z]+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
+        words.forEach(w => { wordCounts[w] = (wordCounts[w] || 0) + 1; });
+      });
+      const wordCloud = Object.entries(wordCounts).map(([text, count]) => ({ text, count })).sort((a, b) => b.count - a.count).slice(0, 30);
+
+      // Compute stats from history
+      const avgDR = history.length > 0 ? (history.reduce((s, h) => s + (h.dynamic_range || 0), 0) / history.length).toFixed(1) : '?';
+      const textures = {};
+      history.forEach(h => { if (h.texture) textures[h.texture] = (textures[h.texture] || 0) + 1; });
+      const topTexture = Object.entries(textures).sort((a, b) => b[1] - a[1])[0]?.[0] || '?';
+      const topArtists = {};
+      history.forEach(h => { if (h.artist) topArtists[h.artist] = (topArtists[h.artist] || 0) + 1; });
+      const favArtist = Object.entries(topArtists).sort((a, b) => b[1] - a[1])[0]?.[0] || '?';
+
+      const personality = existing.level === 'high'
+        ? 'Highly tuned ears. You hear what others miss.'
+        : existing.level === 'medium'
+        ? 'You live between intensity and control.'
+        : 'Open to everything. The whole spectrum is yours.';
+
+      const canvas = generateCard({
+        title: 'My Music DNA',
+        artist: 'musiciwant.com',
+        subtitle: personality,
+        stats: [
+          { value: avgDR, label: 'AVG INTENSITY', color: '#d4956a' },
+          { value: topTexture, label: 'TEXTURE', color: '#e8e4df' },
+          { value: history.length.toString(), label: 'SONGS EXPLORED', color: '#4a9e6f' }
+        ],
+        bodyText: history.length > 0 ? 'Top artist: ' + favArtist + '. ' + (existing.triggers?.length ? 'Triggers: ' + existing.triggers.join(', ') + '.' : '') : 'Explore more songs to build your DNA.',
+        wordCloud: wordCloud
+      });
+      showCardPreview(canvas, 'profile-card-preview');
+    });
     return;
   }
 
