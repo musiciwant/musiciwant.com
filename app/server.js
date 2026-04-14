@@ -774,6 +774,12 @@ Valid recommended_for: sleep, focus, anxiety relief, meltdown recovery, deep lis
     // Parse response — handle markdown-wrapped JSON from Perplexity
     let rawContent = aiData.choices[0].message.content;
     rawContent = rawContent.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    // Extract JSON object — handle trailing text after the JSON
+    const jsonStart = rawContent.indexOf('{');
+    const jsonEnd = rawContent.lastIndexOf('}');
+    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+      rawContent = rawContent.substring(jsonStart, jsonEnd + 1);
+    }
     const analysis = JSON.parse(rawContent);
 
     if (analysis.unknown) {
@@ -786,28 +792,58 @@ Valid recommended_for: sleep, focus, anxiety relief, meltdown recovery, deep lis
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ai-checked', ?, ?, ?, ?)
     `);
 
-    const result = insertSong.run(
-      analysis.title, analysis.artist, analysis.album || '', analysis.year,
-      slug, analysis.sensory_level, analysis.dynamic_range, analysis.sudden_changes,
-      analysis.texture, analysis.predictability, analysis.vocal_style,
-      analysis.sensory_notes || '', analysis.bpm, analysis.description || '',
-      analysis.miso_mouth || 'unknown', analysis.miso_clicks || 'unknown',
-      analysis.miso_breathing || 'unknown', analysis.miso_repetitive || 'unknown'
-    );
+    // Validate required fields BEFORE attempting insert to avoid silent failures
+    const validLevels = ['safe','moderate','intense'];
+    const validChanges = ['none','mild','moderate','frequent','extreme'];
+    const validTextures = ['smooth','layered','complex','harsh','abrasive'];
+    const validPred = ['high','medium','low'];
+    const validVocal = ['instrumental','soft vocals','spoken word','dynamic vocals','screaming'];
 
-    const songId = result.lastInsertRowid || db.prepare('SELECT id FROM songs WHERE slug = ?').get(slug)?.id;
+    if (!validLevels.includes(analysis.sensory_level)) analysis.sensory_level = 'moderate';
+    if (!validChanges.includes(analysis.sudden_changes)) analysis.sudden_changes = 'mild';
+    if (!validTextures.includes(analysis.texture)) analysis.texture = 'layered';
+    if (!validPred.includes(analysis.predictability)) analysis.predictability = 'medium';
+    if (!validVocal.includes(analysis.vocal_style)) analysis.vocal_style = 'dynamic vocals';
+    analysis.dynamic_range = parseInt(analysis.dynamic_range) || 5;
+    if (analysis.dynamic_range < 1 || analysis.dynamic_range > 10) analysis.dynamic_range = 5;
+    analysis.bpm = parseInt(analysis.bpm) || 100;
 
-    if (songId && analysis.moods) {
+    let result;
+    try {
+      result = insertSong.run(
+        analysis.title, analysis.artist, analysis.album || '', analysis.year,
+        slug, analysis.sensory_level, analysis.dynamic_range, analysis.sudden_changes,
+        analysis.texture, analysis.predictability, analysis.vocal_style,
+        analysis.sensory_notes || '', analysis.bpm, analysis.description || '',
+        analysis.miso_mouth || 'unknown', analysis.miso_clicks || 'unknown',
+        analysis.miso_breathing || 'unknown', analysis.miso_repetitive || 'unknown'
+      );
+    } catch (insertErr) {
+      console.error('Song insert failed:', insertErr.message);
+      return res.status(500).json({ error: 'Could not save song' });
+    }
+
+    // Only proceed with tag inserts if the song was actually created OR already exists
+    let songId = null;
+    if (result.changes > 0) {
+      songId = result.lastInsertRowid;
+    } else {
+      // INSERT OR IGNORE skipped — song already exists, look it up
+      const existing = db.prepare('SELECT id FROM songs WHERE slug = ?').get(slug);
+      if (existing) songId = existing.id;
+    }
+
+    if (songId && analysis.moods && Array.isArray(analysis.moods)) {
       const insertMood = db.prepare('INSERT OR IGNORE INTO song_moods (song_id, mood) VALUES (?, ?)');
-      for (const m of analysis.moods) insertMood.run(songId, m);
+      for (const m of analysis.moods) { try { insertMood.run(songId, m); } catch (e) {} }
     }
-    if (songId && analysis.traditions) {
+    if (songId && analysis.traditions && Array.isArray(analysis.traditions)) {
       const insertTrad = db.prepare('INSERT OR IGNORE INTO song_traditions (song_id, tradition) VALUES (?, ?)');
-      for (const t of analysis.traditions) insertTrad.run(songId, t);
+      for (const t of analysis.traditions) { try { insertTrad.run(songId, t); } catch (e) {} }
     }
-    if (songId && analysis.recommended_for) {
+    if (songId && analysis.recommended_for && Array.isArray(analysis.recommended_for)) {
       const insertRec = db.prepare('INSERT OR IGNORE INTO song_recommended_for (song_id, use_case) VALUES (?, ?)');
-      for (const r of analysis.recommended_for) insertRec.run(songId, r);
+      for (const r of analysis.recommended_for) { try { insertRec.run(songId, r); } catch (e) {} }
     }
 
     analysis.slug = slug;
@@ -1115,9 +1151,17 @@ app.post('/api/stub/generate', async (req, res) => {
     `worn leather concert ticket stub texture, "${band}" embossed feel, date "${year}"${city ? ', venue: ' + city : ''}, rich warm tones, vintage memorabilia style`
   ];
 
-  const imagePromises = prompts.map(p => generateImageFal(p, 1));
-  const results = await Promise.all(imagePromises);
-  const images = results.map(r => r && r[0]).filter(Boolean);
+  // Try Fal first, fall back to DALL-E for any that fail
+  const results = await Promise.all(
+    prompts.map(async (p) => {
+      const falResult = await generateImageFal(p, 1);
+      if (falResult && falResult[0]) return falResult[0];
+      // Fall back to DALL-E
+      const dalleResult = await generateImageDALLE(p);
+      return dalleResult;
+    })
+  );
+  const images = results.filter(Boolean);
 
   if (images.length === 0) return res.status(503).json({ error: 'Image generation unavailable' });
 
@@ -1215,6 +1259,8 @@ Rules:
     const data = await aiRes.json();
     let content = data.choices?.[0]?.message?.content || '';
     content = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const pStart = content.indexOf('{'), pEnd = content.lastIndexOf('}');
+    if (pStart !== -1 && pEnd > pStart) content = content.substring(pStart, pEnd + 1);
     const poem = JSON.parse(content);
 
     // Save poem for potential sharing/gallery
@@ -1342,6 +1388,8 @@ Pick songs with real emotional weight. Not obvious choices. Think about what wou
     const data = await res.json();
     let content = data.choices?.[0]?.message?.content || '';
     content = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const mStart = content.indexOf('{'), mEnd = content.lastIndexOf('}');
+    if (mStart !== -1 && mEnd > mStart) content = content.substring(mStart, mEnd + 1);
     return JSON.parse(content);
   } catch (e) {
     console.error('Song match error:', e.message);
@@ -1374,6 +1422,8 @@ async function classifyEmotion(text) {
     const data = await res.json();
     let content = data.choices?.[0]?.message?.content || '';
     content = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const cStart = content.indexOf('{'), cEnd = content.lastIndexOf('}');
+    if (cStart !== -1 && cEnd > cStart) content = content.substring(cStart, cEnd + 1);
     const parsed = JSON.parse(content);
     return ['cry','feel','remember','let_go','held','brave'].includes(parsed.category) ? parsed.category : 'cry';
   } catch (e) {
