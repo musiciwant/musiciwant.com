@@ -2433,14 +2433,39 @@ function renderHomePage(recentSongs, totalSongs, totalArtists) {
         </div>
       </section>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;max-width:700px;margin:2rem auto">
+      <h2 style="text-align:center;margin-top:3rem;font-family:Georgia,serif">Things To Try</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem;max-width:900px;margin:1.5rem auto">
+        <a href="/session" style="padding:1.5rem;background:linear-gradient(135deg, rgba(212,149,106,0.12) 0%, rgba(74,158,111,0.08) 100%);border-radius:12px;text-decoration:none;border:1px solid rgba(212,149,106,0.25)">
+          <h3 style="color:var(--accent);margin:0 0 0.5rem 0;font-size:1.1rem">Start a Session</h3>
+          <p style="color:#8a8580;font-size:0.85rem;margin:0">Tell us how you feel. We find the song that matches. The ritual that hits.</p>
+        </a>
+        <a href="/poem" style="padding:1.5rem;background:var(--bg-card);border-radius:12px;text-decoration:none;border:1px solid #1c1c28">
+          <h3 style="color:var(--accent);margin:0 0 0.5rem 0;font-size:1.1rem">A Poem For You</h3>
+          <p style="color:#8a8580;font-size:0.85rem;margin:0">Tell us what you're feeling. Pick a band you love. We write an original poem inspired by their themes.</p>
+        </a>
         <a href="/check" style="padding:1.5rem;background:var(--bg-card);border-radius:12px;text-decoration:none;border:1px solid #1c1c28">
-          <h3 style="color:var(--safe);margin:0 0 0.5rem 0;font-size:1rem">Understand Any Song</h3>
+          <h3 style="color:var(--safe);margin:0 0 0.5rem 0;font-size:1.1rem">Understand Any Song</h3>
           <p style="color:#8a8580;font-size:0.85rem;margin:0">Enter any song &mdash; see its dynamic range, texture, intensity, and emotional arc before you press play.</p>
         </a>
+        <a href="/tattoo" style="padding:1.5rem;background:var(--bg-card);border-radius:12px;text-decoration:none;border:1px solid #1c1c28">
+          <h3 style="color:var(--accent);margin:0 0 0.5rem 0;font-size:1.1rem">Tattoo Studio</h3>
+          <p style="color:#8a8580;font-size:0.85rem;margin:0">Type a lyric. Pick a style. Get a design you can actually take to a tattoo artist.</p>
+        </a>
+        <a href="/stub" style="padding:1.5rem;background:var(--bg-card);border-radius:12px;text-decoration:none;border:1px solid #1c1c28">
+          <h3 style="color:var(--accent);margin:0 0 0.5rem 0;font-size:1.1rem">Concert Memory Stub</h3>
+          <p style="color:#8a8580;font-size:0.85rem;margin:0">A show that mattered. Turn it into a keepsake you'd actually frame.</p>
+        </a>
+        <a href="/timeline" style="padding:1.5rem;background:var(--bg-card);border-radius:12px;text-decoration:none;border:1px solid #1c1c28">
+          <h3 style="color:var(--accent);margin:0 0 0.5rem 0;font-size:1.1rem">Your Life In Music</h3>
+          <p style="color:#8a8580;font-size:0.85rem;margin:0">Your birth year + your favorite band. We map their albums to your life.</p>
+        </a>
+        <a href="/wordle" style="padding:1.5rem;background:var(--bg-card);border-radius:12px;text-decoration:none;border:1px solid #1c1c28">
+          <h3 style="color:var(--accent);margin:0 0 0.5rem 0;font-size:1.1rem">Daily Song Wordle</h3>
+          <p style="color:#8a8580;font-size:0.85rem;margin:0">A new song title to guess every day. Streak tracking. Share your result.</p>
+        </a>
         <a href="/make" style="padding:1.5rem;background:var(--bg-card);border-radius:12px;text-decoration:none;border:1px solid #1c1c28">
-          <h3 style="color:var(--moderate);margin:0 0 0.5rem 0;font-size:1rem">Create Your Own</h3>
-          <p style="color:#8a8580;font-size:0.85rem;margin:0">Describe the music you want to hear. Pick a genre, set the intensity, and we'll create a unique song for you.</p>
+          <h3 style="color:var(--moderate);margin:0 0 0.5rem 0;font-size:1.1rem">Create Your Own</h3>
+          <p style="color:#8a8580;font-size:0.85rem;margin:0">Describe the music you want. We create a song that exists nowhere else.</p>
         </a>
       </div>
 
