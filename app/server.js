@@ -563,6 +563,20 @@ app.get('/api/songs', (req, res) => {
   res.json(songs);
 });
 
+// Popular songs — sorted by fan story count (must come BEFORE /:slug route)
+app.get('/api/songs/popular', (req, res) => {
+  const songs = db.prepare(`
+    SELECT s.*, COUNT(fs.id) as story_count
+    FROM songs s
+    LEFT JOIN fan_stories fs ON fs.song_slug = s.slug AND fs.approved = 1
+    WHERE s.thumbnail_url IS NOT NULL AND s.thumbnail_url != ''
+    GROUP BY s.id
+    ORDER BY story_count DESC, s.created_at DESC
+    LIMIT 16
+  `).all();
+  res.json(songs);
+});
+
 // Get single song by slug
 app.get('/api/songs/:slug', (req, res) => {
   const song = db.prepare('SELECT * FROM songs WHERE slug = ?').get(req.params.slug);
@@ -1450,6 +1464,9 @@ function sidebarHTML() {
       <a href="/finder" class="sidebar-link"><span class="sidebar-icon">&#10026;</span> Find Music</a>
       <a href="/check" class="sidebar-link"><span class="sidebar-icon">&#10003;</span> Check a Song</a>
       <a href="/wall" class="sidebar-link"><span class="sidebar-icon">&#9829;</span> The Wall</a>
+      <a href="/battle" class="sidebar-link"><span class="sidebar-icon">&#9876;</span> Song Battle</a>
+      <a href="/one" class="sidebar-link"><span class="sidebar-icon">&#9734;</span> One Song Challenge</a>
+      <a href="/drops" class="sidebar-link"><span class="sidebar-icon">&#9879;</span> DNA Drops</a>
       <a href="/profile" class="sidebar-link"><span class="sidebar-icon">&#9733;</span> My Profile</a>
       <a href="/make" class="sidebar-link"><span class="sidebar-icon">&#9836;</span> Make Music</a>
       <a href="/request" class="sidebar-link"><span class="sidebar-icon">+</span> Request Artist</a>

@@ -282,8 +282,14 @@ async function renderHome() {
 }
 
 async function renderLibrary() {
+  const urlParams = new URLSearchParams(location.search);
+  const hasFilter = urlParams.has('search') || urlParams.has('mood') || urlParams.has('recommended_for') || urlParams.has('sensory_level') || urlParams.has('tradition');
+
   app.innerHTML = `
     <h1>Song Library</h1>
+    <div id="popular-section"></div>
+    <div id="personal-section"></div>
+    <h2 style="margin-top:2rem">All Songs</h2>
     <div class="filter-bar">
       <select id="filter-mood" class="filter-select"><option value="">All Moods</option></select>
       <select id="filter-use" class="filter-select"><option value="">Recommended For...</option></select>
@@ -292,6 +298,49 @@ async function renderLibrary() {
     </div>
     <div class="result-count" id="song-count"></div>
     <div class="song-grid" id="song-list"></div>`;
+
+  // POPULAR SECTION — songs with most fan stories + album art, skip if filtering
+  if (!hasFilter) {
+    try {
+      const popularSongs = await api('/api/songs/popular');
+      if (popularSongs.length > 0) {
+        const popHTML = popularSongs.slice(0, 8).map(s => {
+          const sl = s.sensory_level === 'safe' ? 'badge-safe' : s.sensory_level === 'moderate' ? 'badge-moderate' : 'badge-intense';
+          const art = s.thumbnail_url ? `<img src="${s.thumbnail_url}" alt="" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:var(--radius-sm)">` : `<div style="width:100%;aspect-ratio:1;background:var(--bg-card);border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:2rem">♪</div>`;
+          return `<a href="/song/${s.slug}" data-link style="text-decoration:none;color:var(--text)">
+            ${art}
+            <div style="margin-top:0.5rem">
+              <div style="font-weight:700;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.title}</div>
+              <div style="font-size:0.8rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.artist}</div>
+              <div style="margin-top:0.3rem"><span class="badge ${sl}" style="font-size:0.65rem">${s.sensory_level}</span>${s.story_count ? ` <span style="font-size:0.7rem;color:var(--text-dim)">${s.story_count} ♥</span>` : ''}</div>
+            </div>
+          </a>`;
+        }).join('');
+        document.getElementById('popular-section').innerHTML = `
+          <h2>Most Told</h2>
+          <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:1rem">Songs people can't stop writing about.</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:1rem;margin-bottom:1.5rem">${popHTML}</div>`;
+      }
+    } catch (e) {}
+
+    // PERSONAL SECTION — based on localStorage history
+    const history = getHistory();
+    if (history.length > 0) {
+      const recentCards = history.slice(0, 6).map(h => {
+        const sl = h.sensory_level === 'safe' ? 'badge-safe' : h.sensory_level === 'moderate' ? 'badge-moderate' : 'badge-intense';
+        return `<a href="/song/${h.slug}" data-link style="display:block;padding:0.75rem;background:var(--bg-card);border-radius:var(--radius-sm);text-decoration:none;color:var(--text)">
+          <div style="font-weight:700;font-size:0.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.title}</div>
+          <div style="font-size:0.75rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.artist}</div>
+          <span class="badge ${sl}" style="font-size:0.65rem;margin-top:0.3rem">${h.sensory_level}</span>
+        </a>`;
+      }).join('');
+      document.getElementById('personal-section').innerHTML = `
+        <h2 style="margin-top:1.5rem">Your Recent</h2>
+        <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:1rem">Picks up where you left off. <a href="/profile" data-link style="color:var(--accent)">Build your profile →</a></p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0.75rem;margin-bottom:1.5rem">${recentCards}</div>`;
+    }
+  }
+
   const f = await api('/api/filters');
   const ms = document.getElementById('filter-mood'), us = document.getElementById('filter-use'), ts = document.getElementById('filter-tradition');
   f.moods.forEach(m => ms.innerHTML += `<option value="${m}">${m}</option>`);
@@ -329,7 +378,7 @@ function trackView(song) {
 function getHistory() { try { return JSON.parse(localStorage.getItem('miw_history') || '[]'); } catch { return []; } }
 
 // Stop words for word cloud
-const STOP_WORDS = new Set(['the','a','an','and','or','but','in','on','at','to','for','of','with','by','from','is','it','its','this','that','was','are','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','can','shall','not','no','nor','so','if','than','too','very','just','about','above','after','again','all','am','any','because','before','below','between','both','during','each','few','further','here','how','into','more','most','my','other','our','out','over','own','same','she','he','some','such','then','there','these','they','through','under','until','up','we','what','when','where','which','while','who','whom','why','you','your','i','me','him','her','us','them','his','my','mine','her','hers','its','our','ours','their','theirs','dont','cant','wont','aint','im','youre','hes','shes','were','theyre','ive','youve','weve','theyve','id','youd','hed','shed','wed','theyd','ill','youll','hell','shell','well','theyll','like','get','got','go','going','know','want','come','make','say','said','one','two','back','way','even','new','now','old','see','time','well','also','people','into','year','your','some','them','than','then','look','only','also','after','many','before','right','too','does','must','said','let','made','find','long','day','down','been','call','first','who','may','each','tell','still'];
+const STOP_WORDS = new Set(['the','a','an','and','or','but','in','on','at','to','for','of','with','by','from','is','it','its','this','that','was','are','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','can','shall','not','no','nor','so','if','than','too','very','just','about','above','after','again','all','am','any','because','before','below','between','both','during','each','few','further','here','how','into','more','most','my','other','our','out','over','own','same','she','he','some','such','then','there','these','they','through','under','until','up','we','what','when','where','which','while','who','whom','why','you','your','i','me','him','her','us','them','his','my','mine','her','hers','its','our','ours','their','theirs','dont','cant','wont','aint','im','youre','hes','shes','were','theyre','ive','youve','weve','theyve','id','youd','hed','shed','wed','theyd','ill','youll','hell','shell','well','theyll','like','get','got','go','going','know','want','come','make','say','said','one','two','back','way','even','new','now','old','see','time','well','also','people','into','year','your','some','them','than','then','look','only','also','after','many','before','right','too','does','must','said','let','made','find','long','day','down','been','call','first','who','may','each','tell','still']);
 
 async function renderSong(slug) {
   app.innerHTML = '<p>Loading...</p>';
@@ -481,7 +530,7 @@ async function renderSong(slug) {
           body: JSON.stringify({ song_slug: slug, name, city: document.getElementById('sf-city').value.trim(), story, lyric: document.getElementById('sf-lyric').value.trim() })
         });
         const d = await res.json();
-        if (d.ok) document.getElementById('story-form-wrap').innerHTML = '<p style="color:var(--safe)">Thank you. Your story is now part of this song.</p><div style="margin-top:0.75rem;display:flex;gap:0.5rem"><a href="https://twitter.com/intent/tweet?text='+encodeURIComponent('I just shared what this song means to me on Music I Want →')+'" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#1DA1F2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Share on X</a><a href="https://www.facebook.com/sharer/sharer.php?u='+encodeURIComponent(window.location.href)+'" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#4267B2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Facebook</a><button onclick="navigator.clipboard.writeText(window.location.href);this.textContent=\\'Copied!\\'" style="padding:0.4rem 0.8rem;background:var(--bg-hover);color:var(--text);border:1px solid var(--bg-hover);border-radius:6px;font-size:0.8rem;cursor:pointer;font-weight:600">Copy Link</button></div>';
+        if (d.ok) document.getElementById('story-form-wrap').innerHTML = '<p style="color:var(--safe)">Thank you. Your story is now part of this song.</p><div style="margin-top:0.75rem;display:flex;gap:0.5rem"><a href="https://twitter.com/intent/tweet?text='+encodeURIComponent('I just shared what this song means to me on Music I Want →')+'" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#1DA1F2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Share on X</a><a href="https://www.facebook.com/sharer/sharer.php?u='+encodeURIComponent(window.location.href)+'" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#4267B2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Facebook</a><button onclick="navigator.clipboard.writeText(window.location.href);this.textContent=&#39;Copied!&#39;" style="padding:0.4rem 0.8rem;background:var(--bg-hover);color:var(--text);border:1px solid var(--bg-hover);border-radius:6px;font-size:0.8rem;cursor:pointer;font-weight:600">Copy Link</button></div>';
         else showToast(d.error || 'Something went wrong');
       });
     }
@@ -621,7 +670,7 @@ async function renderArtist(name) {
       body: JSON.stringify({ song_slug: song, name: sname, city: document.getElementById('asf-city').value.trim(), story, lyric: document.getElementById('asf-lyric').value.trim(), email: document.getElementById('asf-email').value.trim() })
     });
     const d = await res.json();
-    if (d.ok) document.getElementById('asf-wrap').innerHTML = '<p style="color:var(--safe);font-size:0.95rem">Thank you. Your story is now part of the wall.</p><div style="margin-top:0.75rem;display:flex;gap:0.5rem"><a href="https://twitter.com/intent/tweet?text='+encodeURIComponent('I just shared my music story on Music I Want →')+'" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#1DA1F2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Share on X</a><a href="https://www.facebook.com/sharer/sharer.php?u='+encodeURIComponent(window.location.href)+'" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#4267B2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Facebook</a><button onclick="navigator.clipboard.writeText(window.location.href);this.textContent=\\'Copied!\\'" style="padding:0.4rem 0.8rem;background:var(--bg-hover);color:var(--text);border:1px solid var(--bg-hover);border-radius:6px;font-size:0.8rem;cursor:pointer;font-weight:600">Copy Link</button></div>';
+    if (d.ok) document.getElementById('asf-wrap').innerHTML = '<p style="color:var(--safe);font-size:0.95rem">Thank you. Your story is now part of the wall.</p><div style="margin-top:0.75rem;display:flex;gap:0.5rem"><a href="https://twitter.com/intent/tweet?text='+encodeURIComponent('I just shared my music story on Music I Want →')+'" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#1DA1F2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Share on X</a><a href="https://www.facebook.com/sharer/sharer.php?u='+encodeURIComponent(window.location.href)+'" target="_blank" rel="noopener" style="padding:0.4rem 0.8rem;background:#4267B2;color:#fff;border-radius:6px;text-decoration:none;font-size:0.8rem;font-weight:600">Facebook</a><button onclick="navigator.clipboard.writeText(window.location.href);this.textContent=&#39;Copied!&#39;" style="padding:0.4rem 0.8rem;background:var(--bg-hover);color:var(--text);border:1px solid var(--bg-hover);border-radius:6px;font-size:0.8rem;cursor:pointer;font-weight:600">Copy Link</button></div>';
     else showToast(d.error || 'Something went wrong');
   });
 }
@@ -1308,7 +1357,7 @@ function renderRequestArtist() {
       body: JSON.stringify({ artist_name: artist, genre: document.getElementById('req-genre').value.trim(), favorite_song: document.getElementById('req-song').value.trim(), why: document.getElementById('req-why').value.trim(), email: document.getElementById('req-email').value.trim() })
     });
     const d = await res.json();
-    if (d.ok) document.getElementById('req-form').innerHTML = '<p style="color:var(--safe);font-size:1.1rem;text-align:center;padding:2rem 0">Request received. We\\'ll decode their catalog soon.</p>';
+    if (d.ok) document.getElementById('req-form').innerHTML = '<p style="color:var(--safe);font-size:1.1rem;text-align:center;padding:2rem 0">Request received. We will decode their catalog soon.</p>';
     else showToast(d.error || 'Something went wrong');
   });
 }
