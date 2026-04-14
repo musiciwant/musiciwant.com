@@ -106,6 +106,8 @@ function route() {
   else if (p === '/one') renderOneSong();
   else if (p === '/drops') renderDrops();
   else if (p.startsWith('/drop/')) renderDrop(p.replace('/drop/', ''));
+  else if (p === '/session') renderSessionStart();
+  else if (p.startsWith('/session/')) renderSessionById(p.replace('/session/', ''));
   else if (p.startsWith('/check/')) renderSong(p.replace('/check/', ''));
   else if (p.startsWith('/artist/')) renderArtist(p.replace('/artist/', ''));
   else if (p.startsWith('/song/')) renderSong(p.replace('/song/', ''));
@@ -193,8 +195,13 @@ async function renderHome() {
       <h1>Find the music you want.</h1>
       <p class="tagline">Understand any song. Discover what hits the same.</p>
 
+      <div style="max-width:560px;margin:2rem auto 1.5rem">
+        <a href="/session" data-link style="display:block;padding:1.25rem 2rem;background:linear-gradient(135deg, var(--accent) 0%, #c4a94d 100%);color:var(--bg);border-radius:16px;text-decoration:none;font-weight:700;font-size:1.15rem;font-family:Georgia,serif;box-shadow:0 8px 24px rgba(212,149,106,0.2);transition:transform 0.15s">Start a Session &mdash; What do you need?</a>
+        <p style="color:var(--text-dim);font-size:0.8rem;margin-top:0.5rem">Tell us how you feel. We'll find the song.</p>
+      </div>
+
       <div class="home-search" style="max-width:560px;margin:1.5rem auto">
-        <input type="text" id="home-search-input" placeholder="Search any song, artist, or mood..." class="filter-input" style="width:100%;padding:0.85rem 1.2rem;font-size:1.05rem;border-radius:var(--radius);text-align:center">
+        <input type="text" id="home-search-input" placeholder="Or search any song, artist, or mood..." class="filter-input" style="width:100%;padding:0.85rem 1.2rem;font-size:1.05rem;border-radius:var(--radius);text-align:center">
       </div>
 
       <div style="display:flex;gap:0.75rem;justify-content:center;margin-top:1rem;flex-wrap:wrap">
@@ -1725,6 +1732,282 @@ async function renderDrop(slug) {
         <button onclick="navigator.clipboard.writeText('https://musiciwant.com/drop/${slug}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Link',2000)" style="padding:0.4rem 0.8rem;background:var(--bg-hover);color:var(--text);border:1px solid var(--bg-hover);border-radius:6px;font-size:0.8rem;cursor:pointer;font-weight:600">Copy Link</button>
       </div>
     </div>`;
+}
+
+// --- Sessions: The emotional conversation ---
+
+function sessionShell(content) {
+  return `<div class="session-screen" style="position:fixed;top:0;left:0;right:0;bottom:0;background:#0a0a10;z-index:100;display:flex;align-items:center;justify-content:center;padding:2rem;overflow-y:auto">
+    <div style="max-width:640px;width:100%;text-align:center">${content}</div>
+    <a href="/" data-link style="position:absolute;top:1.5rem;right:1.5rem;color:var(--text-dim);text-decoration:none;font-size:0.85rem">&times; close</a>
+  </div>`;
+}
+
+async function renderSessionStart() {
+  document.querySelector('.sidebar')?.setAttribute('style', 'display:none');
+  app.innerHTML = sessionShell(`
+    <h1 style="font-family:Georgia,serif;font-size:2.5rem;margin-bottom:0.5rem">What do you need?</h1>
+    <p style="color:var(--text-muted);margin-bottom:2.5rem">Pick a feeling. Or tell us in a line.</p>
+
+    <div style="display:flex;flex-wrap:wrap;gap:0.75rem;justify-content:center;margin-bottom:2.5rem">
+      <button class="session-emotion" data-cat="cry" style="padding:1rem 1.75rem;background:var(--bg-card);color:var(--text);border:1px solid var(--bg-hover);border-radius:999px;font-size:1rem;cursor:pointer;transition:all 0.15s">To cry</button>
+      <button class="session-emotion" data-cat="feel" style="padding:1rem 1.75rem;background:var(--bg-card);color:var(--text);border:1px solid var(--bg-hover);border-radius:999px;font-size:1rem;cursor:pointer;transition:all 0.15s">To feel something</button>
+      <button class="session-emotion" data-cat="remember" style="padding:1rem 1.75rem;background:var(--bg-card);color:var(--text);border:1px solid var(--bg-hover);border-radius:999px;font-size:1rem;cursor:pointer;transition:all 0.15s">To remember</button>
+      <button class="session-emotion" data-cat="let_go" style="padding:1rem 1.75rem;background:var(--bg-card);color:var(--text);border:1px solid var(--bg-hover);border-radius:999px;font-size:1rem;cursor:pointer;transition:all 0.15s">To let go</button>
+      <button class="session-emotion" data-cat="held" style="padding:1rem 1.75rem;background:var(--bg-card);color:var(--text);border:1px solid var(--bg-hover);border-radius:999px;font-size:1rem;cursor:pointer;transition:all 0.15s">To be held</button>
+      <button class="session-emotion" data-cat="brave" style="padding:1rem 1.75rem;background:var(--bg-card);color:var(--text);border:1px solid var(--bg-hover);border-radius:999px;font-size:1rem;cursor:pointer;transition:all 0.15s">To be brave</button>
+    </div>
+
+    <div style="margin-bottom:2rem">
+      <div style="color:var(--text-dim);font-size:0.85rem;margin-bottom:0.75rem">&mdash; or &mdash;</div>
+      <p style="color:var(--text-muted);margin-bottom:1rem;font-style:italic;font-size:0.95rem">Tell us in one line. Like a haiku. The weight. The why.</p>
+      <textarea id="session-haiku" placeholder="My dad died four months ago and I still can&#39;t cry." maxlength="500" rows="2" style="width:100%;max-width:500px;padding:1rem;background:var(--bg-card);border:1px solid var(--bg-hover);border-radius:12px;color:var(--text);font-size:1rem;font-family:Georgia,serif;resize:none;text-align:center"></textarea>
+      <br>
+      <button id="session-haiku-submit" style="margin-top:1rem;padding:0.85rem 2rem;background:var(--accent);color:var(--bg);border:none;border-radius:999px;font-size:1rem;font-weight:600;cursor:pointer">Find my song</button>
+    </div>
+
+    <p style="color:var(--text-dim);font-size:0.75rem">Real songs. Real responses from people who came before you.</p>
+  `);
+
+  document.querySelectorAll('.session-emotion').forEach(btn => {
+    btn.addEventListener('mouseenter', () => { btn.style.borderColor = 'var(--accent)'; btn.style.background = 'var(--bg-hover)'; });
+    btn.addEventListener('mouseleave', () => { btn.style.borderColor = 'var(--bg-hover)'; btn.style.background = 'var(--bg-card)'; });
+    btn.addEventListener('click', () => startSessionFlow(btn.dataset.cat, ''));
+  });
+
+  document.getElementById('session-haiku-submit')?.addEventListener('click', () => {
+    const text = document.getElementById('session-haiku').value.trim();
+    if (!text) { showToast('Pick a feeling or write a line'); return; }
+    startSessionFlow('', text);
+  });
+}
+
+async function startSessionFlow(category, context) {
+  // Show preparation screen first
+  app.innerHTML = sessionShell(`
+    <div class="session-loading">
+      <h2 style="font-family:Georgia,serif;font-size:1.5rem;color:var(--text-muted);margin-bottom:2rem">Finding your song...</h2>
+      <div class="make-spinner" style="margin:0 auto"></div>
+    </div>
+  `);
+
+  try {
+    const res = await fetch('/api/session/start', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ category, context })
+    });
+    const data = await res.json();
+    if (data.error) { app.innerHTML = sessionShell(`<p style="color:var(--text-muted)">${data.error}</p><a href="/session" data-link class="cta-primary" style="margin-top:1rem;display:inline-block">Try again</a>`); return; }
+
+    showSessionPreparation(data);
+  } catch (e) {
+    app.innerHTML = sessionShell(`<p style="color:var(--text-muted)">Something went wrong. Try again.</p><a href="/session" data-link class="cta-primary" style="margin-top:1rem;display:inline-block">Back</a>`);
+  }
+}
+
+function showSessionPreparation(data) {
+  const { session_id, song, reasoning } = data;
+  app.innerHTML = sessionShell(`
+    <p style="color:var(--text-dim);font-size:0.9rem;margin-bottom:0.75rem">We found your song.</p>
+    <h1 style="font-family:Georgia,serif;font-size:2.2rem;margin-bottom:0.5rem">${song.title}</h1>
+    <p style="color:var(--accent);font-size:1.1rem;margin-bottom:2rem">${song.artist}</p>
+
+    ${reasoning ? `<p style="color:var(--text-muted);font-style:italic;font-size:0.95rem;margin-bottom:2rem;max-width:480px;margin-left:auto;margin-right:auto">${reasoning}</p>` : ''}
+
+    <div style="background:var(--bg-card);padding:1.5rem;border-radius:12px;margin-bottom:2rem;text-align:left">
+      <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:0.5rem">Before you play it:</p>
+      <p style="color:var(--text);font-size:0.95rem;margin-bottom:0.5rem">&bull; Put headphones on if you can.</p>
+      <p style="color:var(--text);font-size:0.95rem;margin-bottom:0.5rem">&bull; Close other tabs. Dim the lights.</p>
+      <p style="color:var(--text);font-size:0.95rem">&bull; Play it all the way through. We'll wait.</p>
+    </div>
+
+    <button id="session-play" class="cta-primary" style="padding:1rem 3rem;font-size:1.05rem;border-radius:999px">Play &#9654;</button>
+  `);
+
+  document.getElementById('session-play').addEventListener('click', () => showSessionPlayback(data));
+}
+
+function showSessionPlayback(data) {
+  const { session_id, song } = data;
+  const embedUrl = song.youtube_id ? `https://www.youtube.com/embed/${song.youtube_id}?autoplay=1` : '';
+  const spotifyUrl = song.spotify_id ? `https://open.spotify.com/embed/track/${song.spotify_id}?theme=0&autoplay=1` : '';
+
+  // Full-screen immersive playback — no ads here, preserve the ritual
+  app.innerHTML = `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:#000;z-index:101;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem">
+    <div style="text-align:center;max-width:680px;width:100%">
+      <h1 style="font-family:Georgia,serif;color:#fff;font-size:2rem;margin-bottom:0.4rem">${song.title}</h1>
+      <p style="color:#d4956a;font-size:1.1rem;margin-bottom:2rem">${song.artist}</p>
+      ${song.youtube_id ? `<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;margin-bottom:2rem"><iframe src="${embedUrl}" style="position:absolute;top:0;left:0;width:100%;height:100%" allow="autoplay;encrypted-media" allowfullscreen></iframe></div>` :
+        song.spotify_id ? `<iframe src="${spotifyUrl}" width="100%" height="380" frameborder="0" allow="autoplay;encrypted-media" style="border-radius:12px;margin-bottom:2rem"></iframe>` :
+        `<div style="padding:3rem;background:#15151f;border-radius:12px;margin-bottom:2rem"><p style="color:#8a8580">No embed available. Open in Spotify or YouTube:</p>
+          <div style="margin-top:1rem;display:flex;gap:0.75rem;justify-content:center">
+            <a href="https://open.spotify.com/search/${encodeURIComponent(song.title + ' ' + song.artist)}" target="_blank" class="cta-primary" style="background:#1DB954;text-decoration:none">Spotify</a>
+            <a href="https://www.youtube.com/results?search_query=${encodeURIComponent(song.title + ' ' + song.artist)}" target="_blank" class="cta-primary" style="background:#FF0000;text-decoration:none">YouTube</a>
+          </div>
+        </div>`}
+      <button id="session-finished" style="padding:1rem 3rem;background:#d4956a;color:#0a0a10;border:none;border-radius:999px;font-size:1.05rem;font-weight:600;cursor:pointer">The song ended &rarr;</button>
+    </div>
+  </div>`;
+
+  document.getElementById('session-finished').addEventListener('click', () => showSessionResponse(data));
+}
+
+async function showSessionResponse(data) {
+  const { session_id, song } = data;
+
+  // Fetch other people's responses to this song
+  let othersHTML = '';
+  try {
+    const stories = await api('/api/stories/' + song.slug);
+    if (stories.length > 0) {
+      othersHTML = `<div style="margin-top:2rem;text-align:left">
+        <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:0.75rem;text-align:center">Others who heard this song:</p>
+        ${stories.slice(0, 3).map(st => `<div style="padding:1rem;background:var(--bg-card);border-radius:8px;border-left:3px solid var(--accent);margin-bottom:0.75rem">
+          <p style="color:var(--text);font-size:0.9rem;margin:0 0 0.4rem 0">${st.story}</p>
+          <p style="color:var(--text-dim);font-size:0.75rem;margin:0"><strong>${st.name}</strong>${st.city ? ' &mdash; ' + st.city : ''}</p>
+        </div>`).join('')}
+      </div>`;
+    }
+  } catch (e) {}
+
+  app.innerHTML = sessionShell(`
+    <h2 style="font-family:Georgia,serif;font-size:1.8rem;margin-bottom:0.5rem">What came up?</h2>
+    <p style="color:var(--text-muted);font-size:0.95rem;margin-bottom:2rem">One word. One sentence. One paragraph. Whatever happened.</p>
+
+    <textarea id="session-response" placeholder="What did you feel?" maxlength="2000" rows="5" style="width:100%;max-width:560px;padding:1rem;background:var(--bg-card);border:1px solid var(--bg-hover);border-radius:12px;color:var(--text);font-size:1rem;font-family:Georgia,serif;resize:vertical"></textarea>
+    <br>
+    <button id="session-submit-response" style="margin-top:1rem;padding:0.85rem 2.5rem;background:var(--accent);color:var(--bg);border:none;border-radius:999px;font-size:1rem;font-weight:600;cursor:pointer">Keep going</button>
+
+    ${othersHTML}
+  `);
+
+  document.getElementById('session-submit-response').addEventListener('click', async () => {
+    const response = document.getElementById('session-response').value.trim();
+    if (!response) { showToast('Tell us what came up'); return; }
+
+    try {
+      await fetch('/api/session/' + session_id + '/respond', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ step_num: 1, response })
+      });
+    } catch (e) {}
+
+    // Also save to fan_stories so it appears on the song page
+    try {
+      await fetch('/api/stories', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ song_slug: song.slug, name: 'Anonymous', city: '', story: response, lyric: '' })
+      });
+    } catch (e) {}
+
+    showSessionContinue(data, response);
+  });
+}
+
+async function showSessionContinue(data, lastResponse) {
+  const { session_id, song } = data;
+
+  // Fetch recent sessions to offer pathways to follow
+  let pathwayHTML = '';
+  try {
+    const recent = await api('/api/sessions/recent');
+    const others = recent.filter(s => s.id !== session_id && s.steps.length > 0).slice(0, 3);
+    if (others.length > 0) {
+      pathwayHTML = `<div style="margin-top:2.5rem;text-align:left">
+        <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:0.75rem;text-align:center">Or follow someone else's night:</p>
+        ${others.map(s => {
+          const firstStep = s.steps[0];
+          const stepCount = s.steps.length;
+          return `<a href="/session/${s.id}" data-link style="display:block;padding:1rem;background:var(--bg-card);border-radius:8px;text-decoration:none;color:var(--text);margin-bottom:0.75rem;border:1px solid var(--bg-hover)">
+            <div style="font-size:0.8rem;color:var(--text-dim);margin-bottom:0.3rem">${s.entry_category || 'session'} &middot; ${stepCount} song${stepCount > 1 ? 's' : ''}</div>
+            ${firstStep?.song_title ? `<div style="font-weight:600;color:var(--accent);font-size:0.95rem">${firstStep.song_title} &mdash; ${firstStep.song_artist}</div>` : ''}
+            ${s.entry_text ? `<div style="color:var(--text-muted);font-size:0.85rem;margin-top:0.3rem;font-style:italic">"${s.entry_text.slice(0, 100)}"</div>` : ''}
+          </a>`;
+        }).join('')}
+      </div>`;
+    }
+  } catch (e) {}
+
+  app.innerHTML = sessionShell(`
+    <p style="color:var(--accent);font-size:0.9rem;margin-bottom:0.5rem">Thank you.</p>
+    <h2 style="font-family:Georgia,serif;font-size:1.6rem;margin-bottom:2rem">How do you feel now?</h2>
+
+    <div style="display:flex;flex-direction:column;gap:0.75rem;max-width:480px;margin:0 auto 2rem">
+      <button class="session-next" data-cat="cry" style="padding:1rem;background:var(--bg-card);color:var(--text);border:1px solid var(--bg-hover);border-radius:12px;font-size:0.95rem;cursor:pointer;text-align:left">Still holding something &mdash; another song</button>
+      <button class="session-next" data-cat="held" style="padding:1rem;background:var(--bg-card);color:var(--text);border:1px solid var(--bg-hover);border-radius:12px;font-size:0.95rem;cursor:pointer;text-align:left">Lighter &mdash; I want comfort now</button>
+      <button class="session-next" data-cat="brave" style="padding:1rem;background:var(--bg-card);color:var(--text);border:1px solid var(--bg-hover);border-radius:12px;font-size:0.95rem;cursor:pointer;text-align:left">Ready for courage &mdash; make me brave</button>
+      <button class="session-next" data-cat="remember" style="padding:1rem;background:var(--bg-card);color:var(--text);border:1px solid var(--bg-hover);border-radius:12px;font-size:0.95rem;cursor:pointer;text-align:left">Bring something back &mdash; help me remember</button>
+    </div>
+
+    <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:0.75rem">&mdash; or tell us in a new line &mdash;</p>
+    <textarea id="session-next-haiku" placeholder="Where are you now?" maxlength="500" rows="2" style="width:100%;max-width:480px;padding:1rem;background:var(--bg-card);border:1px solid var(--bg-hover);border-radius:12px;color:var(--text);font-size:0.95rem;font-family:Georgia,serif;resize:none;text-align:center"></textarea>
+    <br>
+    <button id="session-next-submit" style="margin-top:1rem;padding:0.75rem 2rem;background:var(--accent);color:var(--bg);border:none;border-radius:999px;font-size:0.95rem;font-weight:600;cursor:pointer">Another song</button>
+
+    ${pathwayHTML}
+  `);
+
+  document.querySelectorAll('.session-next').forEach(btn => {
+    btn.addEventListener('mouseenter', () => btn.style.borderColor = 'var(--accent)');
+    btn.addEventListener('mouseleave', () => btn.style.borderColor = 'var(--bg-hover)');
+    btn.addEventListener('click', () => continueSession(session_id, btn.dataset.cat, ''));
+  });
+
+  document.getElementById('session-next-submit').addEventListener('click', () => {
+    const text = document.getElementById('session-next-haiku').value.trim();
+    if (!text) { showToast('Pick something or write a line'); return; }
+    continueSession(session_id, '', text);
+  });
+}
+
+async function continueSession(sessionId, category, context) {
+  app.innerHTML = sessionShell(`<h2 style="font-family:Georgia,serif;font-size:1.5rem;color:var(--text-muted);margin-bottom:2rem">Finding your next song...</h2><div class="make-spinner" style="margin:0 auto"></div>`);
+
+  try {
+    const res = await fetch('/api/session/' + sessionId + '/continue', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ category, context })
+    });
+    const data = await res.json();
+    if (data.error) { app.innerHTML = sessionShell(`<p style="color:var(--text-muted)">${data.error}</p>`); return; }
+
+    const nextData = { session_id: sessionId, song: data.song, reasoning: data.reasoning };
+    showSessionPreparation(nextData);
+  } catch (e) {
+    app.innerHTML = sessionShell(`<p style="color:var(--text-muted)">Something went wrong.</p>`);
+  }
+}
+
+async function renderSessionById(id) {
+  document.querySelector('.sidebar')?.setAttribute('style', 'display:none');
+  app.innerHTML = sessionShell(`<div class="make-spinner" style="margin:0 auto"></div>`);
+
+  try {
+    const session = await api('/api/session/' + id);
+    if (session.error) { app.innerHTML = sessionShell(`<p>Session not found</p><a href="/session" data-link class="cta-primary" style="margin-top:1rem;display:inline-block">Start your own</a>`); return; }
+
+    const stepsHTML = session.steps.filter(s => s.song).map((step, i) => `
+      <div style="margin-bottom:2rem;text-align:left;background:var(--bg-card);padding:1.5rem;border-radius:12px;border-left:3px solid var(--accent)">
+        <div style="color:var(--text-dim);font-size:0.75rem;margin-bottom:0.5rem">Song ${i + 1}</div>
+        <a href="/song/${step.song.slug}" data-link style="color:var(--accent);font-size:1.1rem;font-weight:600;text-decoration:none">${step.song.title}</a>
+        <div style="color:var(--text-muted);font-size:0.9rem;margin-bottom:0.75rem">${step.song.artist}</div>
+        ${step.context ? `<p style="color:var(--text-muted);font-style:italic;font-size:0.85rem;margin-bottom:0.75rem">Entry: "${step.context}"</p>` : ''}
+        ${step.response ? `<p style="color:var(--text);font-size:0.9rem;margin-bottom:0">Response: "${step.response}"</p>` : `<p style="color:var(--text-dim);font-size:0.85rem">(no response written)</p>`}
+      </div>
+    `).join('');
+
+    app.innerHTML = sessionShell(`
+      <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:0.5rem">Someone's night</p>
+      <h1 style="font-family:Georgia,serif;font-size:1.8rem;margin-bottom:0.5rem">Following this pathway</h1>
+      ${session.entry_text ? `<p style="color:var(--text-muted);font-style:italic;margin-bottom:2rem">"${session.entry_text}"</p>` : ''}
+
+      <div style="margin-bottom:2rem">${stepsHTML}</div>
+
+      <a href="/session" data-link class="cta-primary" style="padding:1rem 2.5rem;border-radius:999px;display:inline-block;text-decoration:none">Start your own session</a>
+    `);
+  } catch (e) {
+    app.innerHTML = sessionShell(`<p>Error loading session</p>`);
+  }
 }
 
 // --- Card button binding ---

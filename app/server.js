@@ -916,6 +916,267 @@ app.get('/api/songs/:slug/alternatives', (req, res) => {
   res.json(top);
 });
 
+// --- Sessions (the emotional conversation feature) ---
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    user_token TEXT DEFAULT '',
+    entry_text TEXT DEFAULT '',
+    entry_category TEXT DEFAULT '',
+    is_public INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS session_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    step_num INTEGER NOT NULL,
+    category TEXT DEFAULT '',
+    context TEXT DEFAULT '',
+    song_slug TEXT DEFAULT '',
+    response TEXT DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_session_steps_session ON session_steps(session_id);
+  CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);
+`);
+
+function genSessionId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// AI call for classification + song matching
+async function matchSongForEmotion(category, context) {
+  const aiKey = PERPLEXITY_KEY || OPENAI_KEY;
+  if (!aiKey) return null;
+  const usePerplexity = !!PERPLEXITY_KEY;
+  const endpoint = usePerplexity ? 'https://api.perplexity.ai/chat/completions' : 'https://api.openai.com/v1/chat/completions';
+  const model = usePerplexity ? 'sonar' : 'gpt-4o-mini';
+
+  const categoryPrompts = {
+    cry: "a song that will break them open, help them release what's been held back",
+    feel: "a song that can cut through emotional numbness and make them feel something real",
+    remember: "a song that brings back a specific time or person vividly",
+    let_go: "a song for releasing something they've been holding onto",
+    held: "a song that feels like being wrapped in safety, a musical weighted blanket",
+    brave: "a song that gives them courage, helps them stand up"
+  };
+
+  const intent = categoryPrompts[category] || "a song that matches their emotional state right now";
+
+  const systemPrompt = `You are helping someone find exactly the right song for how they feel. You must pick ONE specific song that is widely known (has a Wikipedia or AllMusic entry, is on Spotify) that perfectly matches their emotional need.
+
+Return ONLY valid JSON, no markdown, no explanation:
+{
+  "title": "exact song title",
+  "artist": "exact artist name",
+  "reasoning": "one sentence about why this song fits their state"
+}
+
+Pick songs with real emotional weight. Not obvious choices. Think about what would actually land.`;
+
+  const userPrompt = `They need ${intent}. Their specific context: "${context || 'no context given, just the feeling'}". Pick the one song they need.`;
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiKey}` },
+      body: JSON.stringify({
+        model,
+        temperature: 0.7,
+        ...(usePerplexity ? {} : { response_format: { type: 'json_object' } }),
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ]
+      })
+    });
+    const data = await res.json();
+    let content = data.choices?.[0]?.message?.content || '';
+    content = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    return JSON.parse(content);
+  } catch (e) {
+    console.error('Song match error:', e.message);
+    return null;
+  }
+}
+
+// AI call to classify free text into an emotion category
+async function classifyEmotion(text) {
+  const aiKey = PERPLEXITY_KEY || OPENAI_KEY;
+  if (!aiKey) return 'cry';
+  const usePerplexity = !!PERPLEXITY_KEY;
+  const endpoint = usePerplexity ? 'https://api.perplexity.ai/chat/completions' : 'https://api.openai.com/v1/chat/completions';
+  const model = usePerplexity ? 'sonar' : 'gpt-4o-mini';
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiKey}` },
+      body: JSON.stringify({
+        model,
+        temperature: 0.3,
+        ...(usePerplexity ? {} : { response_format: { type: 'json_object' } }),
+        messages: [
+          { role: 'system', content: 'You classify emotional states into exactly one category. Return ONLY valid JSON: {"category":"cry|feel|remember|let_go|held|brave"}. Rules: cry=need catharsis or release. feel=numb or dissociated. remember=missing someone or nostalgic. let_go=need to move past something. held=need comfort and safety. brave=need courage.' },
+          { role: 'user', content: text }
+        ]
+      })
+    });
+    const data = await res.json();
+    let content = data.choices?.[0]?.message?.content || '';
+    content = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const parsed = JSON.parse(content);
+    return ['cry','feel','remember','let_go','held','brave'].includes(parsed.category) ? parsed.category : 'cry';
+  } catch (e) {
+    return 'cry';
+  }
+}
+
+// Start a session — classify emotion, match song, create session record
+app.post('/api/session/start', async (req, res) => {
+  const { category, context } = req.body;
+  if (!category && !context) return res.status(400).json({ error: 'Pick a category or write how you feel' });
+
+  // If no category provided, classify from text
+  let finalCategory = category;
+  if (!finalCategory && context) {
+    finalCategory = await classifyEmotion(context);
+  }
+
+  // Find the song
+  const aiMatch = await matchSongForEmotion(finalCategory, context);
+  if (!aiMatch) return res.status(503).json({ error: 'AI matching unavailable right now. Try again.' });
+
+  // Look up the song in our database, or check it via the checker
+  let song = db.prepare('SELECT * FROM songs WHERE LOWER(title) LIKE ? AND LOWER(artist) LIKE ? LIMIT 1')
+    .get(`%${aiMatch.title.toLowerCase()}%`, `%${aiMatch.artist.toLowerCase()}%`);
+
+  // If not found, analyze it and add
+  if (!song) {
+    const slug = (aiMatch.title + '-' + aiMatch.artist).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 80);
+    // Run through the checker logic — reuse the analysis
+    try {
+      const checkerRes = await fetch('http://localhost:' + PORT + '/api/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': 'session-bot-' + Date.now() },
+        body: JSON.stringify({ title: aiMatch.title, artist: aiMatch.artist })
+      });
+      const checkerData = await checkerRes.json();
+      if (checkerData.found && checkerData.song) {
+        song = db.prepare('SELECT * FROM songs WHERE slug = ?').get(slug) || checkerData.song;
+      }
+    } catch (e) {}
+  }
+
+  if (!song) return res.status(404).json({ error: 'Song not found. Try again.' });
+
+  // Create session
+  const sessionId = genSessionId();
+  const userToken = req.headers['x-user-token'] || '';
+  db.prepare('INSERT INTO sessions (id, user_token, entry_text, entry_category) VALUES (?, ?, ?, ?)')
+    .run(sessionId, userToken, (context || '').slice(0, 500), finalCategory);
+
+  // Save first step
+  db.prepare('INSERT INTO session_steps (session_id, step_num, category, context, song_slug) VALUES (?, ?, ?, ?, ?)')
+    .run(sessionId, 1, finalCategory, (context || '').slice(0, 500), song.slug);
+
+  res.json({
+    session_id: sessionId,
+    song: song,
+    category: finalCategory,
+    reasoning: aiMatch.reasoning || ''
+  });
+});
+
+// Add a response to a session step
+app.post('/api/session/:id/respond', (req, res) => {
+  const { step_num, response } = req.body;
+  if (!step_num || !response) return res.status(400).json({ error: 'Missing fields' });
+  if (response.length > 2000) return res.status(400).json({ error: 'Response too long' });
+
+  if (!moderateContent(response)) return res.status(400).json({ error: 'Content blocked' });
+
+  db.prepare('UPDATE session_steps SET response = ? WHERE session_id = ? AND step_num = ?')
+    .run(response, req.params.id, step_num);
+  res.json({ ok: true });
+});
+
+// Continue a session — add another song
+app.post('/api/session/:id/continue', async (req, res) => {
+  const { category, context } = req.body;
+  const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.params.id);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+
+  let finalCategory = category;
+  if (!finalCategory && context) finalCategory = await classifyEmotion(context);
+
+  const aiMatch = await matchSongForEmotion(finalCategory, context);
+  if (!aiMatch) return res.status(503).json({ error: 'AI unavailable' });
+
+  let song = db.prepare('SELECT * FROM songs WHERE LOWER(title) LIKE ? AND LOWER(artist) LIKE ? LIMIT 1')
+    .get(`%${aiMatch.title.toLowerCase()}%`, `%${aiMatch.artist.toLowerCase()}%`);
+
+  if (!song) {
+    try {
+      const checkerRes = await fetch('http://localhost:' + PORT + '/api/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': 'session-cont-' + Date.now() },
+        body: JSON.stringify({ title: aiMatch.title, artist: aiMatch.artist })
+      });
+      const checkerData = await checkerRes.json();
+      if (checkerData.found && checkerData.song) song = checkerData.song;
+    } catch (e) {}
+  }
+
+  if (!song) return res.status(404).json({ error: 'Song not found' });
+
+  const lastStep = db.prepare('SELECT MAX(step_num) as m FROM session_steps WHERE session_id = ?').get(req.params.id);
+  const stepNum = (lastStep?.m || 0) + 1;
+
+  db.prepare('INSERT INTO session_steps (session_id, step_num, category, context, song_slug) VALUES (?, ?, ?, ?, ?)')
+    .run(req.params.id, stepNum, finalCategory, (context || '').slice(0, 500), song.slug);
+
+  res.json({ song, step_num: stepNum, category: finalCategory, reasoning: aiMatch.reasoning || '' });
+});
+
+// Fetch a session with all its steps (for following someone else's pathway)
+app.get('/api/session/:id', (req, res) => {
+  const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(req.params.id);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+
+  const steps = db.prepare('SELECT * FROM session_steps WHERE session_id = ? ORDER BY step_num ASC').all(req.params.id);
+  for (const step of steps) {
+    if (step.song_slug) {
+      step.song = db.prepare('SELECT slug, title, artist, sensory_level, dynamic_range, texture, spotify_id, youtube_id, thumbnail_url FROM songs WHERE slug = ?').get(step.song_slug);
+    }
+  }
+  res.json({ ...session, steps });
+});
+
+// Recent public sessions (for the pathway wall)
+app.get('/api/sessions/recent', (req, res) => {
+  const sessions = db.prepare(`
+    SELECT s.*, COUNT(ss.id) as step_count
+    FROM sessions s
+    LEFT JOIN session_steps ss ON ss.session_id = s.id
+    WHERE s.is_public = 1 AND EXISTS (SELECT 1 FROM session_steps WHERE session_id = s.id AND response != '')
+    GROUP BY s.id
+    ORDER BY s.created_at DESC LIMIT 30
+  `).all();
+
+  for (const session of sessions) {
+    session.steps = db.prepare(`
+      SELECT ss.*, s.title as song_title, s.artist as song_artist
+      FROM session_steps ss
+      LEFT JOIN songs s ON s.slug = ss.song_slug
+      WHERE ss.session_id = ?
+      ORDER BY ss.step_num ASC
+    `).all(session.id);
+  }
+  res.json(sessions);
+});
+
 // --- Fan Stories ---
 
 // Get stories for a song
@@ -1462,6 +1723,7 @@ function sidebarHTML() {
       <a href="/" class="sidebar-link"><span class="sidebar-icon">&#9750;</span> Home</a>
       <a href="/library" class="sidebar-link"><span class="sidebar-icon">&#9835;</span> Library</a>
       <a href="/finder" class="sidebar-link"><span class="sidebar-icon">&#10026;</span> Find Music</a>
+      <a href="/session" class="sidebar-link"><span class="sidebar-icon">&#9775;</span> Start a Session</a>
       <a href="/check" class="sidebar-link"><span class="sidebar-icon">&#10003;</span> Check a Song</a>
       <a href="/wall" class="sidebar-link"><span class="sidebar-icon">&#9829;</span> The Wall</a>
       <a href="/battle" class="sidebar-link"><span class="sidebar-icon">&#9876;</span> Song Battle</a>
