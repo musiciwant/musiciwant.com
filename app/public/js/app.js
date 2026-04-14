@@ -114,6 +114,7 @@ function route() {
   else if (p === '/wordle') renderWordle();
   else if (p === '/tattoo') renderTattoo();
   else if (p === '/stub') renderStub();
+  else if (p === '/thanks') renderThanks();
   else if (p.startsWith('/check/')) renderSong(p.replace('/check/', ''));
   else if (p.startsWith('/artist/')) renderArtist(p.replace('/artist/', ''));
   else if (p.startsWith('/song/')) renderSong(p.replace('/song/', ''));
@@ -2222,11 +2223,11 @@ function showPoemCreditsNeeded(data) {
   app.innerHTML = `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:#0a0a10;z-index:100;display:flex;align-items:center;justify-content:center;padding:2rem">
     <div style="max-width:460px;text-align:center">
       <h2 style="font-family:Georgia,serif;font-size:1.5rem;margin-bottom:1rem">You've used your free poems today</h2>
-      <p style="color:var(--text-muted);margin-bottom:2rem">Get 10 more poems for $1. Credits never expire.</p>
-      <a href="#" id="poem-buy" class="cta-primary" style="display:inline-block;padding:1rem 3rem;text-decoration:none;border-radius:999px;font-size:1rem">Buy 10 credits — $1</a>
+      <p style="color:var(--text-muted);margin-bottom:2rem">Get 10 more credits for $1. Use them on poems, tattoo designs, concert stubs, and more. Credits never expire.</p>
+      <a href="https://buy.stripe.com/fZuaEW24U9mmfEx27d1kA03" target="_blank" class="cta-primary" style="display:inline-block;padding:1rem 3rem;text-decoration:none;border-radius:999px;font-size:1rem">Buy 10 credits — $1</a>
       <br><br>
       <a href="/poem" data-link style="color:var(--text-dim);font-size:0.85rem">Back</a>
-      <p style="color:var(--text-dim);font-size:0.75rem;margin-top:2rem;font-style:italic">(Payment integration coming soon — for now, come back tomorrow for more free poems.)</p>
+      <p style="color:var(--text-dim);font-size:0.75rem;margin-top:2rem">Secure checkout via Stripe. Credits added after payment.</p>
     </div>
   </div>`;
 }
@@ -2473,6 +2474,25 @@ function renderGuessRow(guess, target) {
   return `<div style="margin-bottom:0.5rem">${cells.join('')}</div>`;
 }
 
+// --- Thank you page after Stripe checkout ---
+function renderThanks() {
+  document.querySelector('.sidebar')?.setAttribute('style', '');
+  app.innerHTML = `<div style="max-width:560px;margin:0 auto;text-align:center;padding:3rem 1rem">
+    <div style="font-size:3rem;margin-bottom:1rem">♥</div>
+    <h1 style="font-family:Georgia,serif;font-size:2rem;margin-bottom:1rem">Thank you</h1>
+    <p style="color:var(--text-muted);font-size:1.1rem;margin-bottom:2rem">Your purchase helps us keep this site running. Credits will be added to your account within a few minutes.</p>
+    <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:2rem;font-style:italic">If your credits don't appear, email us and we'll add them manually.</p>
+
+    <div style="display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap">
+      <a href="/poem" data-link class="cta-primary" style="text-decoration:none">Write a Poem</a>
+      <a href="/tattoo" data-link class="cta-primary" style="text-decoration:none;background:var(--safe)">Tattoo Studio</a>
+      <a href="/session" data-link class="cta-primary" style="text-decoration:none;background:var(--moderate)">Session</a>
+    </div>
+    <br>
+    <a href="/" data-link style="color:var(--text-dim);font-size:0.85rem">Back to home</a>
+  </div>`;
+}
+
 // --- Lyric Tattoo Design Studio ---
 async function renderTattoo() {
   document.querySelector('.sidebar')?.setAttribute('style', '');
@@ -2562,8 +2582,9 @@ async function renderTattoo() {
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin-bottom:1.5rem">${imgHTML}</div>
         <div style="text-align:center;padding:1.5rem;background:rgba(212,149,106,0.06);border-radius:var(--radius);border:1px solid rgba(212,149,106,0.15)">
           <p style="margin-bottom:0.75rem">These previews are watermarked. To download clean, high-resolution versions you can take to a tattoo artist:</p>
-          <button class="cta-primary" style="font-size:1rem">Unlock All 3 — $3</button>
+          <a href="https://buy.stripe.com/28E8wOgZObuu4ZT4fl1kA04" target="_blank" class="cta-primary" style="font-size:1rem;display:inline-block;text-decoration:none">Unlock Design — $3</a>
           <p style="color:var(--text-dim);font-size:0.75rem;margin-top:0.75rem">${data.remaining_free} free designs left today</p>
+          <p style="color:var(--text-dim);font-size:0.7rem;margin-top:0.25rem">Or <a href="https://buy.stripe.com/fZuaEW24U9mmfEx27d1kA03" target="_blank" style="color:var(--accent)">get 10 more generations for $1</a></p>
         </div>
         <div style="text-align:center;margin-top:1rem">
           <button id="tt-again" class="cta-secondary">Generate Another</button>
@@ -2660,8 +2681,8 @@ async function renderStub() {
         ${memory ? `<p style="text-align:center;font-style:italic;color:var(--text-muted);margin-bottom:1rem">"${memory}"</p>` : ''}
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin-bottom:1.5rem">${imgHTML}</div>
         <div style="text-align:center;padding:1.5rem;background:rgba(212,149,106,0.06);border-radius:var(--radius);border:1px solid rgba(212,149,106,0.15)">
-          <p style="margin-bottom:0.75rem">Unlock a clean high-res download of your favorite:</p>
-          <button class="cta-primary" style="font-size:1rem">Unlock — $1</button>
+          <p style="margin-bottom:0.75rem">Unlock a clean high-res download of your favorite (use $1 credit):</p>
+          <a href="https://buy.stripe.com/fZuaEW24U9mmfEx27d1kA03" target="_blank" class="cta-primary" style="font-size:1rem;display:inline-block;text-decoration:none">Get Credits — $1 for 10</a>
           <p style="color:var(--text-dim);font-size:0.75rem;margin-top:0.75rem">${data.remaining_free} free stubs left today</p>
         </div>
         <div style="text-align:center;margin-top:1rem">
