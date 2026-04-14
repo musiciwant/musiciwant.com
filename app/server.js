@@ -916,6 +916,166 @@ app.get('/api/songs/:slug/alternatives', (req, res) => {
   res.json(top);
 });
 
+// --- Credits system (shared across paid features) ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_credits (
+    token TEXT PRIMARY KEY,
+    credits INTEGER DEFAULT 0,
+    free_used_today INTEGER DEFAULT 0,
+    last_reset DATE DEFAULT CURRENT_DATE,
+    ip TEXT DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+function getOrCreateUserCredits(token, ip) {
+  let row = db.prepare('SELECT * FROM user_credits WHERE token = ?').get(token);
+  if (!row) {
+    db.prepare('INSERT INTO user_credits (token, ip) VALUES (?, ?)').run(token, ip);
+    row = db.prepare('SELECT * FROM user_credits WHERE token = ?').get(token);
+  }
+  // Reset daily free count if it's a new day
+  const today = new Date().toISOString().slice(0, 10);
+  if (row.last_reset !== today) {
+    db.prepare('UPDATE user_credits SET free_used_today = 0, last_reset = ? WHERE token = ?').run(today, token);
+    row.free_used_today = 0;
+    row.last_reset = today;
+  }
+  return row;
+}
+
+function consumeCredit(token, ip, freeLimit = 3) {
+  const row = getOrCreateUserCredits(token, ip);
+  if (row.free_used_today < freeLimit) {
+    db.prepare('UPDATE user_credits SET free_used_today = free_used_today + 1 WHERE token = ?').run(token);
+    return { ok: true, type: 'free', remaining_free: freeLimit - row.free_used_today - 1, paid_credits: row.credits };
+  }
+  if (row.credits > 0) {
+    db.prepare('UPDATE user_credits SET credits = credits - 1 WHERE token = ?').run(token);
+    return { ok: true, type: 'paid', remaining_free: 0, paid_credits: row.credits - 1 };
+  }
+  return { ok: false, error: 'Out of credits. Get 10 more for $1.', remaining_free: 0, paid_credits: 0 };
+}
+
+app.get('/api/credits', (req, res) => {
+  const token = req.headers['x-user-token'] || '';
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  if (!token) return res.json({ free_used_today: 0, credits: 0, free_limit: 3 });
+  const row = getOrCreateUserCredits(token, ip);
+  res.json({ free_used_today: row.free_used_today, credits: row.credits, free_limit: 3 });
+});
+
+// --- Poem Generator (fan tribute poetry, not fake songs) ---
+
+app.post('/api/poem/generate', async (req, res) => {
+  const { context, band, style, want_voice } = req.body;
+  if (!context || context.length < 5) return res.status(400).json({ error: 'Tell us what you are feeling' });
+  if (context.length > 1000) return res.status(400).json({ error: 'Keep it under 1000 characters' });
+
+  // Rate limit / credit check
+  const token = req.headers['x-user-token'] || ('anon-' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'ip'));
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const credit = consumeCredit(token, ip, 2); // 2 free poems per day
+  if (!credit.ok) return res.status(402).json({ error: credit.error, ...credit });
+
+  // Moderation
+  if (!moderateContent(context)) {
+    return res.status(400).json({ error: 'Content blocked. Please revise.' });
+  }
+
+  const aiKey = PERPLEXITY_KEY || OPENAI_KEY;
+  if (!aiKey) return res.status(503).json({ error: 'Poetry engine not configured' });
+  const usePerplexity = !!PERPLEXITY_KEY;
+  const endpoint = usePerplexity ? 'https://api.perplexity.ai/chat/completions' : 'https://api.openai.com/v1/chat/completions';
+  const model = usePerplexity ? 'sonar' : 'gpt-4o-mini';
+
+  const bandInspiration = band ? ` The person loves the band "${band}". You can be inspired by the emotional themes that band explores, but DO NOT copy any lyrics, and DO NOT pretend to be writing as that band. Write your own original poem.` : '';
+
+  const systemPrompt = `You are a poet writing short original fan tribute poems. You write poems inspired by the emotional themes and moods that certain musicians explore. You NEVER copy lyrics. You NEVER claim to be writing as any artist. You write ORIGINAL poetry in response to someone's feelings.
+
+Output format: Return ONLY valid JSON with these fields:
+{
+  "title": "a short evocative title (2-5 words)",
+  "poem": "the poem itself, 8-16 lines, free verse or structured. Use line breaks. Make it land.",
+  "closing_note": "one sentence describing the emotion this poem is for"
+}
+
+Rules:
+- The poem must be ORIGINAL and cannot contain lyrics from any real song.
+- Do not attribute the poem to any band or artist.
+- Make it emotionally specific to the user's input, not generic.
+- Good poems: Mary Oliver, Ocean Vuong, Ada Limon energy. Specific imagery. Quiet power.
+- Use actual line breaks with \\n in the JSON.
+- 8-16 lines max.`;
+
+  const userPrompt = `Write an original poem inspired by this feeling: "${context}".${bandInspiration}${style ? ' Style preference: ' + style + '.' : ''}`;
+
+  try {
+    const aiRes = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiKey}` },
+      body: JSON.stringify({
+        model,
+        temperature: 0.85,
+        ...(usePerplexity ? {} : { response_format: { type: 'json_object' } }),
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ]
+      })
+    });
+    const data = await aiRes.json();
+    let content = data.choices?.[0]?.message?.content || '';
+    content = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const poem = JSON.parse(content);
+
+    // Save poem for potential sharing/gallery
+    try {
+      db.exec(`CREATE TABLE IF NOT EXISTS poems (
+        id TEXT PRIMARY KEY,
+        token TEXT DEFAULT '',
+        context TEXT DEFAULT '',
+        band TEXT DEFAULT '',
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        closing_note TEXT DEFAULT '',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );`);
+    } catch (e) {}
+
+    const poemId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    db.prepare('INSERT INTO poems (id, token, context, band, title, body, closing_note) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(poemId, token, context.slice(0, 500), band || '', poem.title || 'Untitled', poem.poem || '', poem.closing_note || '');
+
+    res.json({
+      id: poemId,
+      title: poem.title || 'Untitled',
+      poem: poem.poem || '',
+      closing_note: poem.closing_note || '',
+      band: band || '',
+      remaining_free: credit.remaining_free,
+      paid_credits: credit.paid_credits,
+      type: credit.type
+    });
+  } catch (e) {
+    console.error('Poem error:', e.message);
+    res.status(500).json({ error: 'Poetry engine hiccuped. Try again.' });
+  }
+});
+
+app.get('/api/poem/:id', (req, res) => {
+  const poem = db.prepare('SELECT * FROM poems WHERE id = ?').get(req.params.id);
+  if (!poem) return res.status(404).json({ error: 'Poem not found' });
+  res.json(poem);
+});
+
+app.get('/api/poems/recent', (req, res) => {
+  try {
+    const poems = db.prepare('SELECT id, band, title, body, closing_note, created_at FROM poems ORDER BY created_at DESC LIMIT 20').all();
+    res.json(poems);
+  } catch (e) { res.json([]); }
+});
+
 // --- Sessions (the emotional conversation feature) ---
 
 db.exec(`
@@ -1724,6 +1884,9 @@ function sidebarHTML() {
       <a href="/library" class="sidebar-link"><span class="sidebar-icon">&#9835;</span> Library</a>
       <a href="/finder" class="sidebar-link"><span class="sidebar-icon">&#10026;</span> Find Music</a>
       <a href="/session" class="sidebar-link"><span class="sidebar-icon">&#9775;</span> Start a Session</a>
+      <a href="/poem" class="sidebar-link"><span class="sidebar-icon">&#9997;</span> A Poem For You</a>
+      <a href="/timeline" class="sidebar-link"><span class="sidebar-icon">&#9202;</span> Your Life in Music</a>
+      <a href="/wordle" class="sidebar-link"><span class="sidebar-icon">&#9634;</span> Daily Song Wordle</a>
       <a href="/check" class="sidebar-link"><span class="sidebar-icon">&#10003;</span> Check a Song</a>
       <a href="/wall" class="sidebar-link"><span class="sidebar-icon">&#9829;</span> The Wall</a>
       <a href="/battle" class="sidebar-link"><span class="sidebar-icon">&#9876;</span> Song Battle</a>

@@ -108,6 +108,10 @@ function route() {
   else if (p.startsWith('/drop/')) renderDrop(p.replace('/drop/', ''));
   else if (p === '/session') renderSessionStart();
   else if (p.startsWith('/session/')) renderSessionById(p.replace('/session/', ''));
+  else if (p === '/poem') renderPoemStart();
+  else if (p.startsWith('/poem/')) renderPoemById(p.replace('/poem/', ''));
+  else if (p === '/timeline') renderTimeline();
+  else if (p === '/wordle') renderWordle();
   else if (p.startsWith('/check/')) renderSong(p.replace('/check/', ''));
   else if (p.startsWith('/artist/')) renderArtist(p.replace('/artist/', ''));
   else if (p.startsWith('/song/')) renderSong(p.replace('/song/', ''));
@@ -2008,6 +2012,421 @@ async function renderSessionById(id) {
   } catch (e) {
     app.innerHTML = sessionShell(`<p>Error loading session</p>`);
   }
+}
+
+// --- User token for credits + activity ---
+function getUserToken() {
+  let t = localStorage.getItem('miw_token');
+  if (!t) { t = 'u-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); localStorage.setItem('miw_token', t); }
+  return t;
+}
+
+// --- Poem Generator ---
+async function renderPoemStart() {
+  document.querySelector('.sidebar')?.setAttribute('style', 'display:none');
+  app.innerHTML = `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:#0a0a10;z-index:100;overflow-y:auto;padding:2rem">
+    <div style="max-width:640px;margin:0 auto;text-align:center">
+      <a href="/" data-link style="position:absolute;top:1.5rem;right:1.5rem;color:var(--text-dim);text-decoration:none;font-size:0.85rem">&times; close</a>
+      <h1 style="font-family:Georgia,serif;font-size:2.5rem;margin-bottom:0.5rem;margin-top:2rem">A Poem For You</h1>
+      <p style="color:var(--text-muted);font-size:1rem;margin-bottom:2rem">Tell us what you're feeling. Pick a band whose music speaks to you. We'll write you an original poem inspired by the themes that band explores.</p>
+
+      <p style="color:var(--text-dim);font-size:0.8rem;margin-bottom:2rem;font-style:italic">Original fan poetry. Not a song. Not written by any artist. Inspired by the emotions their music brings up.</p>
+
+      <div style="text-align:left;margin-bottom:1.5rem">
+        <label style="display:block;color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem">What are you feeling? (be specific — the poem will match)</label>
+        <textarea id="poem-context" placeholder="Example: My marriage just ended and I'm packing boxes alone in an empty house tonight." maxlength="1000" rows="4" style="width:100%;padding:1rem;background:var(--bg-card);border:1px solid var(--bg-hover);border-radius:12px;color:var(--text);font-size:1rem;font-family:Georgia,serif;resize:vertical"></textarea>
+      </div>
+
+      <div style="text-align:left;margin-bottom:1.5rem">
+        <label style="display:block;color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem">Which band speaks to you? (optional)</label>
+        <input type="text" id="poem-band" placeholder="Pearl Jam, Taylor Swift, Radiohead..." maxlength="100" style="width:100%;padding:0.85rem 1rem;background:var(--bg-card);border:1px solid var(--bg-hover);border-radius:12px;color:var(--text);font-size:1rem">
+      </div>
+
+      <div style="text-align:left;margin-bottom:2rem">
+        <label style="display:block;color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem">Style (optional)</label>
+        <select id="poem-style" style="width:100%;padding:0.85rem 1rem;background:var(--bg-card);border:1px solid var(--bg-hover);border-radius:12px;color:var(--text);font-size:1rem">
+          <option value="">Let the AI choose</option>
+          <option value="quiet and intimate">Quiet and intimate</option>
+          <option value="cathartic and raw">Cathartic and raw</option>
+          <option value="warm and hopeful">Warm and hopeful</option>
+          <option value="melancholic and slow">Melancholic and slow</option>
+          <option value="defiant and strong">Defiant and strong</option>
+          <option value="dreamy and surreal">Dreamy and surreal</option>
+        </select>
+      </div>
+
+      <button id="poem-generate" style="padding:1rem 3rem;background:var(--accent);color:var(--bg);border:none;border-radius:999px;font-size:1.05rem;font-weight:600;cursor:pointer;font-family:Georgia,serif">Write My Poem</button>
+
+      <p style="color:var(--text-dim);font-size:0.75rem;margin-top:1.5rem">2 free poems per day. Additional poems: 10 for $1.</p>
+      <div id="poem-status" style="color:var(--text-muted);font-size:0.8rem;margin-top:0.5rem"></div>
+    </div>
+  </div>`;
+
+  // Show current credit status
+  try {
+    const credits = await fetch('/api/credits', { headers: { 'X-User-Token': getUserToken() } }).then(r => r.json());
+    const remaining = Math.max(0, 2 - credits.free_used_today);
+    document.getElementById('poem-status').textContent = `${remaining} free poem${remaining !== 1 ? 's' : ''} left today${credits.credits > 0 ? ' · ' + credits.credits + ' paid credits' : ''}`;
+  } catch (e) {}
+
+  document.getElementById('poem-generate').addEventListener('click', generatePoem);
+}
+
+async function generatePoem() {
+  const context = document.getElementById('poem-context').value.trim();
+  const band = document.getElementById('poem-band').value.trim();
+  const style = document.getElementById('poem-style').value;
+
+  if (!context || context.length < 5) { showToast('Tell us what you are feeling'); return; }
+
+  const btn = document.getElementById('poem-generate');
+  btn.disabled = true;
+  btn.textContent = 'Writing...';
+
+  try {
+    const res = await fetch('/api/poem/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': getUserToken() },
+      body: JSON.stringify({ context, band, style })
+    });
+    const data = await res.json();
+    if (data.error) {
+      if (res.status === 402) showPoemCreditsNeeded(data);
+      else { showToast(data.error); btn.disabled = false; btn.textContent = 'Write My Poem'; }
+      return;
+    }
+    showPoemResult(data);
+  } catch (e) {
+    showToast('Something went wrong');
+    btn.disabled = false;
+    btn.textContent = 'Write My Poem';
+  }
+}
+
+function showPoemResult(data) {
+  const poemLines = (data.poem || '').split('\n').map(l => `<div style="margin-bottom:0.4rem">${l.trim() || '&nbsp;'}</div>`).join('');
+
+  app.innerHTML = `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:#0a0a10;z-index:100;overflow-y:auto;padding:2rem">
+    <div style="max-width:640px;margin:0 auto">
+      <a href="/poem" data-link style="color:var(--text-dim);text-decoration:none;font-size:0.85rem;display:block;margin-bottom:2rem">&larr; write another</a>
+
+      <div id="poem-card" style="background:linear-gradient(135deg, #0f0f18 0%, #15151f 100%);padding:3rem 2.5rem;border-radius:16px;border:1px solid rgba(212,149,106,0.2);text-align:center;margin-bottom:2rem">
+        <div style="width:60px;height:2px;background:var(--accent);margin:0 auto 1.5rem"></div>
+        <h1 style="font-family:Georgia,serif;font-size:1.8rem;color:var(--text);margin-bottom:2rem;font-style:italic">${data.title}</h1>
+        <div style="font-family:Georgia,serif;font-size:1.1rem;line-height:1.8;color:var(--text);margin-bottom:2rem;text-align:left;max-width:480px;margin-left:auto;margin-right:auto">
+          ${poemLines}
+        </div>
+        ${data.band ? `<p style="color:var(--text-dim);font-size:0.75rem;margin-top:2rem;font-style:italic">Inspired by the themes in ${data.band}'s music.<br>Original fan poetry. Not written by or endorsed by ${data.band}.</p>` : ''}
+        <p style="color:var(--text-dim);font-size:0.7rem;margin-top:1rem">musiciwant.com</p>
+      </div>
+
+      <div style="display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap;margin-bottom:1.5rem">
+        <button id="poem-voice" style="padding:0.75rem 1.5rem;background:var(--bg-card);color:var(--text);border:1px solid var(--bg-hover);border-radius:999px;font-size:0.9rem;cursor:pointer">🔊 Read Aloud</button>
+        <button id="poem-voice-stop" style="padding:0.75rem 1.5rem;background:var(--bg-card);color:var(--text);border:1px solid var(--bg-hover);border-radius:999px;font-size:0.9rem;cursor:pointer;display:none">⏸ Stop</button>
+        <button id="poem-download" style="padding:0.75rem 1.5rem;background:var(--accent);color:var(--bg);border:none;border-radius:999px;font-size:0.9rem;font-weight:600;cursor:pointer">Download Card</button>
+        <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent('A poem written for me on musiciwant.com →')}&url=${encodeURIComponent('https://musiciwant.com/poem/' + data.id)}" target="_blank" style="padding:0.75rem 1.5rem;background:#1DA1F2;color:#fff;border-radius:999px;font-size:0.9rem;font-weight:600;text-decoration:none">Share on X</a>
+      </div>
+
+      <p style="color:var(--text-dim);font-size:0.75rem;text-align:center;margin-bottom:2rem">${data.remaining_free !== undefined ? (data.remaining_free + ' free poem' + (data.remaining_free !== 1 ? 's' : '') + ' left today') : ''}${data.paid_credits > 0 ? ' · ' + data.paid_credits + ' paid credits' : ''}</p>
+
+      <div style="text-align:center">
+        <a href="/poem" data-link class="cta-primary" style="display:inline-block;text-decoration:none">Write Another</a>
+        <a href="/session" data-link class="cta-secondary" style="display:inline-block;text-decoration:none;margin-left:0.5rem">Find me a song</a>
+      </div>
+    </div>
+  </div>`;
+
+  // Voice read-aloud using Web Speech API
+  let speaking = false;
+  let utterance = null;
+  document.getElementById('poem-voice').addEventListener('click', () => {
+    if (speaking) return;
+    if (!('speechSynthesis' in window)) { showToast('Voice not supported in this browser'); return; }
+    utterance = new SpeechSynthesisUtterance(data.title + '. ' + data.poem);
+    utterance.rate = 0.85;
+    utterance.pitch = 1.0;
+    // Pick a better voice if available
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice = voices.find(v => v.name.includes('Samantha') || v.name.includes('Google UK English Female') || v.name.includes('Karen') || v.name.includes('Moira'));
+    if (preferredVoice) utterance.voice = preferredVoice;
+    utterance.onend = () => { speaking = false; document.getElementById('poem-voice').style.display = 'inline-block'; document.getElementById('poem-voice-stop').style.display = 'none'; };
+    window.speechSynthesis.speak(utterance);
+    speaking = true;
+    document.getElementById('poem-voice').style.display = 'none';
+    document.getElementById('poem-voice-stop').style.display = 'inline-block';
+  });
+  document.getElementById('poem-voice-stop').addEventListener('click', () => {
+    window.speechSynthesis.cancel();
+    speaking = false;
+    document.getElementById('poem-voice').style.display = 'inline-block';
+    document.getElementById('poem-voice-stop').style.display = 'none';
+  });
+
+  // Download as image via canvas
+  document.getElementById('poem-download').addEventListener('click', () => {
+    const canvas = generateCard({
+      title: data.title,
+      artist: data.band ? `Inspired by ${data.band}` : 'Original fan poetry',
+      bodyText: data.poem,
+      watermark: 'musiciwant.com'
+    });
+    downloadCard(canvas, 'poem-' + data.id + '.png');
+  });
+}
+
+function showPoemCreditsNeeded(data) {
+  app.innerHTML = `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:#0a0a10;z-index:100;display:flex;align-items:center;justify-content:center;padding:2rem">
+    <div style="max-width:460px;text-align:center">
+      <h2 style="font-family:Georgia,serif;font-size:1.5rem;margin-bottom:1rem">You've used your free poems today</h2>
+      <p style="color:var(--text-muted);margin-bottom:2rem">Get 10 more poems for $1. Credits never expire.</p>
+      <a href="#" id="poem-buy" class="cta-primary" style="display:inline-block;padding:1rem 3rem;text-decoration:none;border-radius:999px;font-size:1rem">Buy 10 credits — $1</a>
+      <br><br>
+      <a href="/poem" data-link style="color:var(--text-dim);font-size:0.85rem">Back</a>
+      <p style="color:var(--text-dim);font-size:0.75rem;margin-top:2rem;font-style:italic">(Payment integration coming soon — for now, come back tomorrow for more free poems.)</p>
+    </div>
+  </div>`;
+}
+
+async function renderPoemById(id) {
+  document.querySelector('.sidebar')?.setAttribute('style', 'display:none');
+  app.innerHTML = '<p>Loading poem...</p>';
+  try {
+    const poem = await api('/api/poem/' + id);
+    if (poem.error) { app.innerHTML = '<h1>Poem not found</h1>'; return; }
+    showPoemResult({ id: poem.id, title: poem.title, poem: poem.body, band: poem.band, closing_note: poem.closing_note });
+  } catch (e) { app.innerHTML = '<h1>Error loading poem</h1>'; }
+}
+
+// --- "When [Band] Played Your Life" Timeline ---
+async function renderTimeline() {
+  document.querySelector('.sidebar')?.setAttribute('style', '');
+  app.innerHTML = `<div style="max-width:640px;margin:0 auto">
+    <h1>When They Played Your Life</h1>
+    <p style="color:var(--text-muted);margin-bottom:2rem">Tell us your birth year and a band you love. We'll map your life onto their discography — every album they released while you were living it.</p>
+
+    <div style="display:flex;flex-direction:column;gap:1rem;max-width:400px;margin:0 auto 2rem">
+      <input type="number" id="tl-year" placeholder="Birth year (e.g. 1987)" min="1900" max="2030" class="filter-input" style="padding:0.85rem 1rem;font-size:1rem">
+      <input type="text" id="tl-band" placeholder="Favorite band or artist" maxlength="100" class="filter-input" style="padding:0.85rem 1rem;font-size:1rem">
+      <button id="tl-generate" class="cta-primary" style="padding:1rem">Map My Life</button>
+    </div>
+
+    <div id="tl-result"></div>
+  </div>`;
+
+  document.getElementById('tl-generate').addEventListener('click', async () => {
+    const year = parseInt(document.getElementById('tl-year').value);
+    const band = document.getElementById('tl-band').value.trim();
+    if (!year || year < 1900 || year > 2030) { showToast('Enter a valid birth year'); return; }
+    if (!band) { showToast('Enter a band name'); return; }
+
+    document.getElementById('tl-result').innerHTML = '<p style="text-align:center;color:var(--text-muted)">Mapping...</p>';
+
+    try {
+      const data = await api('/api/artist/' + band.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''));
+      if (data.error || !data.songs || data.songs.length === 0) {
+        document.getElementById('tl-result').innerHTML = `<p style="text-align:center;color:var(--text-muted)">We don't have ${band} in our database yet. <a href="/check" data-link style="color:var(--accent)">Check a song to add them</a>, or try another band.</p>`;
+        return;
+      }
+
+      // Group songs by year to find albums/era
+      const byYear = {};
+      data.songs.forEach(s => { if (s.year) { (byYear[s.year] = byYear[s.year] || []).push(s); } });
+      const years = Object.keys(byYear).sort();
+
+      if (years.length === 0) {
+        document.getElementById('tl-result').innerHTML = `<p style="text-align:center;color:var(--text-muted)">We don't have enough year data for ${data.artist}. Try another band.</p>`;
+        return;
+      }
+
+      const now = new Date().getFullYear();
+      const currentAge = now - year;
+
+      const timeline = years.filter(y => parseInt(y) >= year).map(y => {
+        const age = parseInt(y) - year;
+        const songs = byYear[y];
+        const sampleSong = songs[Math.floor(songs.length / 2)];
+        return { year: parseInt(y), age, song_count: songs.length, sample: sampleSong };
+      });
+
+      if (timeline.length === 0) {
+        document.getElementById('tl-result').innerHTML = `<p style="text-align:center;color:var(--text-muted)">${data.artist} released everything before you were born. Try another band.</p>`;
+        return;
+      }
+
+      const timelineHTML = timeline.map(t => `
+        <div style="padding:1.25rem;background:var(--bg-card);border-radius:var(--radius-sm);border-left:3px solid var(--accent);margin-bottom:0.75rem">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:0.4rem">
+            <strong style="color:var(--accent);font-size:1.1rem">${t.year}</strong>
+            <span style="color:var(--text-dim);font-size:0.8rem">You were ${t.age}</span>
+          </div>
+          <a href="/song/${t.sample.slug}" data-link style="color:var(--text);text-decoration:none;font-size:0.95rem">${t.sample.title}</a>
+          ${t.song_count > 1 ? `<span style="color:var(--text-dim);font-size:0.8rem"> + ${t.song_count - 1} more</span>` : ''}
+        </div>
+      `).join('');
+
+      document.getElementById('tl-result').innerHTML = `
+        <h2 style="color:var(--accent);font-size:1.3rem;margin-bottom:0.5rem">${data.artist} Soundtracked Your Life</h2>
+        <p style="color:var(--text-muted);margin-bottom:1.5rem">${timeline.length} year${timeline.length !== 1 ? 's' : ''} of music while you lived. You're ${currentAge} now.</p>
+
+        <div style="margin-bottom:1.5rem">${timelineHTML}</div>
+
+        <div style="text-align:center;padding:1.5rem;background:rgba(212,149,106,0.06);border-radius:var(--radius);border:1px solid rgba(212,149,106,0.15)">
+          <p style="margin-bottom:1rem;color:var(--text)">Your life has always been soundtracked. You just didn't notice.</p>
+          <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(data.artist + ' has soundtracked my life since ' + timeline[0].year + ' →')}&url=${encodeURIComponent('https://musiciwant.com/timeline')}" target="_blank" class="cta-primary" style="text-decoration:none;background:#1DA1F2">Share on X</a>
+          <a href="/artist/${data.artist.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}" data-link class="cta-secondary" style="text-decoration:none;margin-left:0.5rem">Full ${data.artist} page</a>
+        </div>
+      `;
+    } catch (e) {
+      document.getElementById('tl-result').innerHTML = '<p style="text-align:center;color:var(--text-muted)">Something went wrong. Try another band.</p>';
+    }
+  });
+}
+
+// --- Daily Song Title Wordle ---
+async function renderWordle() {
+  document.querySelector('.sidebar')?.setAttribute('style', '');
+  app.innerHTML = `<div style="max-width:560px;margin:0 auto;text-align:center">
+    <h1>Song Wordle</h1>
+    <p style="color:var(--text-muted);margin-bottom:2rem">A new song title to guess every day. Streak tracking, share your result, Wordle-style.</p>
+    <div id="wordle-game"></div>
+  </div>`;
+
+  // Daily song — pick deterministically by date
+  const today = new Date();
+  const dayNumber = Math.floor((today - new Date('2026-01-01')) / (1000 * 60 * 60 * 24));
+
+  // Fetch a random song from top artists (weighted toward known bands)
+  const popularArtists = ['Pearl Jam','Taylor Swift','Radiohead','The Beatles','Nirvana','Led Zeppelin','Pink Floyd','Queen','David Bowie','Michael Jackson','Bob Dylan','Fleetwood Mac','Beyoncé','Billie Eilish','Prince','Adele','Bruce Springsteen','The Rolling Stones','Bob Marley','Eminem'];
+  const seed = dayNumber * 2654435761 % 2147483647;
+  const artistIdx = seed % popularArtists.length;
+  const todaysArtist = popularArtists[artistIdx];
+
+  try {
+    const artistData = await api('/api/artist/' + todaysArtist.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''));
+    if (!artistData.songs || artistData.songs.length === 0) {
+      document.getElementById('wordle-game').innerHTML = '<p>No songs found. Try again tomorrow.</p>';
+      return;
+    }
+
+    // Pick a song title deterministically
+    const songIdx = (seed * 7 + dayNumber) % artistData.songs.length;
+    const target = artistData.songs[songIdx];
+    const targetTitle = target.title.toUpperCase();
+    // Clean title: remove punctuation, limit length
+    const words = targetTitle.replace(/[^A-Z0-9 ]/g, '').split(' ').filter(w => w.length > 0);
+    const fullTarget = words.join(' ');
+
+    if (fullTarget.length < 3 || fullTarget.length > 25) {
+      // Pick simpler fallback
+      const simpleSong = artistData.songs.find(s => s.title.length >= 3 && s.title.length <= 20 && /^[A-Za-z0-9 ]+$/.test(s.title)) || artistData.songs[0];
+      const sTitle = simpleSong.title.toUpperCase();
+      renderWordleGame(sTitle, simpleSong, artistData.artist, dayNumber);
+      return;
+    }
+
+    renderWordleGame(fullTarget, target, artistData.artist, dayNumber);
+  } catch (e) {
+    document.getElementById('wordle-game').innerHTML = '<p>Error loading today\'s puzzle.</p>';
+  }
+}
+
+function renderWordleGame(targetTitle, song, artist, dayNumber) {
+  const guesses = JSON.parse(localStorage.getItem('miw_wordle_' + dayNumber) || '[]');
+  const maxGuesses = 6;
+  const isWin = guesses.some(g => g === targetTitle);
+  const isDone = isWin || guesses.length >= maxGuesses;
+  const streak = parseInt(localStorage.getItem('miw_wordle_streak') || '0');
+
+  // Show the hint: number of words and their lengths
+  const wordLengths = targetTitle.split(' ').map(w => w.length);
+  const hintBoxes = wordLengths.map(len => `<div style="display:inline-flex;gap:0.25rem;margin:0 0.5rem">${Array(len).fill(0).map(() => `<div style="width:32px;height:40px;background:var(--bg-card);border:2px solid var(--bg-hover);border-radius:4px"></div>`).join('')}</div>`).join('');
+
+  const guessHTML = guesses.map(g => renderGuessRow(g, targetTitle)).join('');
+
+  document.getElementById('wordle-game').innerHTML = `
+    <div style="margin-bottom:1.5rem">
+      <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:0.5rem">Today's song is by</p>
+      <h2 style="color:var(--accent);font-size:1.3rem">${artist}</h2>
+      <p style="color:var(--text-dim);font-size:0.75rem;margin-top:0.25rem">Guess ${guesses.length + (isDone ? 0 : 1)} of ${maxGuesses}</p>
+    </div>
+
+    <div style="margin-bottom:1.5rem">
+      <p style="color:var(--text-dim);font-size:0.75rem;margin-bottom:0.5rem">${wordLengths.length} word${wordLengths.length !== 1 ? 's' : ''}:</p>
+      ${hintBoxes}
+    </div>
+
+    <div style="margin-bottom:1.5rem">${guessHTML}</div>
+
+    ${isDone ? `
+      <div style="padding:1.5rem;background:var(--bg-card);border-radius:12px;margin-bottom:1rem">
+        <h3 style="color:${isWin ? 'var(--safe)' : 'var(--intense)'};margin-bottom:0.5rem">${isWin ? '🎉 You got it!' : '😔 Out of guesses'}</h3>
+        <p style="color:var(--text)">The song was <strong>${song.title}</strong> by ${artist}</p>
+        <p style="color:var(--text-dim);font-size:0.85rem;margin-top:0.5rem">Streak: ${isWin ? streak : 0}</p>
+        <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap">
+          <a href="/song/${song.slug}" data-link class="cta-primary" style="text-decoration:none">See the song</a>
+          <button id="wordle-share" class="cta-primary" style="background:#1DA1F2">Share Result</button>
+        </div>
+      </div>
+    ` : `
+      <div>
+        <input type="text" id="wordle-input" placeholder="Type your guess..." maxlength="50" autofocus class="filter-input" style="width:100%;max-width:400px;padding:0.85rem 1rem;font-size:1rem;text-align:center;text-transform:uppercase">
+        <br>
+        <button id="wordle-submit" class="cta-primary" style="margin-top:0.75rem">Submit Guess</button>
+      </div>
+    `}
+
+    <div style="margin-top:1.5rem;padding:1rem;background:var(--bg-card);border-radius:12px">
+      <p style="color:var(--text-dim);font-size:0.8rem;margin-bottom:0.5rem">Your streak: <strong style="color:var(--accent)">${streak}</strong></p>
+      <p style="color:var(--text-dim);font-size:0.75rem">New puzzle every day at midnight UTC</p>
+    </div>
+  `;
+
+  if (!isDone) {
+    const input = document.getElementById('wordle-input');
+    const submit = document.getElementById('wordle-submit');
+    const doGuess = () => {
+      const guess = input.value.trim().toUpperCase().replace(/[^A-Z0-9 ]/g, '');
+      if (!guess) return;
+      guesses.push(guess);
+      localStorage.setItem('miw_wordle_' + dayNumber, JSON.stringify(guesses));
+      if (guess === targetTitle) {
+        localStorage.setItem('miw_wordle_streak', (streak + 1).toString());
+      } else if (guesses.length >= maxGuesses) {
+        localStorage.setItem('miw_wordle_streak', '0');
+      }
+      renderWordleGame(targetTitle, song, artist, dayNumber);
+    };
+    submit.addEventListener('click', doGuess);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') doGuess(); });
+  } else {
+    document.getElementById('wordle-share')?.addEventListener('click', () => {
+      const result = guesses.map(g => g === targetTitle ? '🟩' : '⬛').join('');
+      const text = `Song Wordle Day ${dayNumber}: ${isWin ? guesses.length : 'X'}/${maxGuesses} ${result}\n\nmusiciwant.com/wordle`;
+      navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard!'));
+    });
+  }
+}
+
+function renderGuessRow(guess, target) {
+  const guessWords = guess.split(' ');
+  const targetWords = target.split(' ');
+  const cells = [];
+
+  for (let w = 0; w < Math.max(guessWords.length, targetWords.length); w++) {
+    const gWord = guessWords[w] || '';
+    const tWord = targetWords[w] || '';
+    const wordCells = [];
+    for (let i = 0; i < Math.max(gWord.length, tWord.length); i++) {
+      const gChar = gWord[i] || ' ';
+      const tChar = tWord[i] || '';
+      let bg = 'var(--bg-card)', border = 'var(--bg-hover)';
+      if (tChar && gChar === tChar) { bg = 'var(--safe)'; border = 'var(--safe)'; }
+      else if (target.includes(gChar) && gChar !== ' ') { bg = 'var(--moderate)'; border = 'var(--moderate)'; }
+      wordCells.push(`<div style="width:32px;height:40px;background:${bg};border:2px solid ${border};border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:var(--text);font-weight:700">${gChar.trim()}</div>`);
+    }
+    cells.push(`<div style="display:inline-flex;gap:0.25rem;margin:0 0.5rem 0.5rem">${wordCells.join('')}</div>`);
+  }
+  return `<div style="margin-bottom:0.5rem">${cells.join('')}</div>`;
 }
 
 // --- Card button binding ---
