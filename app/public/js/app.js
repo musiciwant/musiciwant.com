@@ -104,6 +104,8 @@ function route() {
   else if (p === '/profile') renderProfile();
   else if (p === '/battle') renderBattle();
   else if (p === '/one') renderOneSong();
+  else if (p === '/drops') renderDrops();
+  else if (p.startsWith('/drop/')) renderDrop(p.replace('/drop/', ''));
   else if (p.startsWith('/check/')) renderSong(p.replace('/check/', ''));
   else if (p.startsWith('/artist/')) renderArtist(p.replace('/artist/', ''));
   else if (p.startsWith('/song/')) renderSong(p.replace('/song/', ''));
@@ -1626,6 +1628,54 @@ async function renderOneSong() {
       <p style="color:var(--text-dim);margin-top:1rem;font-size:0.85rem">Challenge your friends: what's THEIR one song?</p>`;
     document.getElementById('one-dl')?.addEventListener('click', () => downloadCard(canvas, 'my-one-song.png'));
   });
+}
+
+// --- DNA Drops ---
+async function renderDrops() {
+  app.innerHTML = '<p>Loading drops...</p>';
+  const drops = await api('/api/drops');
+  if (!drops.length) {
+    app.innerHTML = `<div style="max-width:640px;margin:0 auto;text-align:center"><h1>DNA Drops</h1><p style="color:var(--text-muted)">Curated song collections based on emotional architecture, not genre. First drop coming soon.</p></div>`;
+    return;
+  }
+  app.innerHTML = `
+    <div style="max-width:700px;margin:0 auto">
+      <h1>DNA Drops</h1>
+      <p style="color:var(--text-muted);margin-bottom:2rem">Curated song collections based on how music feels, not what genre it is.</p>
+      <div style="display:flex;flex-direction:column;gap:1.5rem">
+        ${drops.map(d => `
+          <a href="/drop/${d.slug}" data-link style="padding:1.5rem;background:var(--bg-card);border-radius:var(--radius);text-decoration:none;color:var(--text);border:1px solid var(--bg-hover);transition:border-color 0.15s" class="home-feature-card">
+            <h2 style="color:var(--accent);margin:0 0 0.5rem 0;font-size:1.1rem">${d.title}</h2>
+            <p style="color:var(--text-muted);font-size:0.9rem;margin:0 0 0.75rem 0">${d.description}</p>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap">${d.songs.slice(0,5).map(s => `<span style="font-size:0.75rem;color:var(--text-dim);background:var(--bg);padding:0.2rem 0.5rem;border-radius:4px">${s.title}</span>`).join('')}</div>
+          </a>`).join('')}
+      </div>
+    </div>`;
+}
+
+async function renderDrop(slug) {
+  app.innerHTML = '<p>Loading...</p>';
+  const drop = await api('/api/drops/' + slug);
+  if (drop.error) { app.innerHTML = '<h1>Drop not found</h1>'; return; }
+  const songCards = drop.songs.map(s => {
+    const sl = s.sensory_level === 'safe' ? 'badge-safe' : s.sensory_level === 'moderate' ? 'badge-moderate' : 'badge-intense';
+    return `<a href="/song/${s.slug}" data-link style="display:flex;justify-content:space-between;align-items:center;padding:1rem;background:var(--bg-card);border-radius:var(--radius-sm);text-decoration:none;color:var(--text);border-left:3px solid ${s.sensory_level === 'safe' ? 'var(--safe)' : s.sensory_level === 'moderate' ? 'var(--moderate)' : 'var(--intense)'}">
+      <div><strong>${s.title}</strong><br><span style="font-size:0.85rem;color:var(--text-muted)">${s.artist}</span></div>
+      <div style="text-align:right"><span class="badge ${sl}" style="font-size:0.7rem">${s.sensory_level}</span><br><span style="font-size:0.75rem;color:var(--text-dim)">DR ${s.dynamic_range} · ${s.texture}</span></div>
+    </a>`;
+  }).join('');
+
+  app.innerHTML = `
+    <div style="max-width:640px;margin:0 auto">
+      <a href="/drops" data-link style="color:var(--text-dim);font-size:0.8rem;text-decoration:none">&larr; All Drops</a>
+      <h1 style="margin-top:0.5rem">${drop.title}</h1>
+      <p style="color:var(--text-muted);margin-bottom:1.5rem">${drop.description}</p>
+      <div style="display:flex;flex-direction:column;gap:0.75rem">${songCards}</div>
+      <div style="margin-top:1.5rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+        <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(drop.title + ' — a DNA Drop from Music I Want →')}&url=${encodeURIComponent('https://musiciwant.com/drop/' + slug)}" target="_blank" class="cta-primary" style="background:#1DA1F2;text-decoration:none;font-size:0.85rem">Share on X</a>
+        <button onclick="navigator.clipboard.writeText('https://musiciwant.com/drop/${slug}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Link',2000)" style="padding:0.4rem 0.8rem;background:var(--bg-hover);color:var(--text);border:1px solid var(--bg-hover);border-radius:6px;font-size:0.8rem;cursor:pointer;font-weight:600">Copy Link</button>
+      </div>
+    </div>`;
 }
 
 // --- Card button binding ---

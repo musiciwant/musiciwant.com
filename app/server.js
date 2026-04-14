@@ -1062,6 +1062,50 @@ app.get('/api/artists', (req, res) => {
   res.json(artists);
 });
 
+// --- Weekly DNA Drops ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS dna_drops (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT UNIQUE NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    song_slugs TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+app.get('/api/drops', (req, res) => {
+  const drops = db.prepare('SELECT * FROM dna_drops ORDER BY created_at DESC LIMIT 20').all();
+  for (const drop of drops) {
+    drop.songs = drop.song_slugs.split(',').map(slug => {
+      const song = db.prepare('SELECT slug, title, artist, sensory_level, dynamic_range, texture FROM songs WHERE slug = ?').get(slug.trim());
+      return song || { slug, title: slug, artist: '?', sensory_level: '?', dynamic_range: 0, texture: '?' };
+    });
+  }
+  res.json(drops);
+});
+
+app.get('/api/drops/:slug', (req, res) => {
+  const drop = db.prepare('SELECT * FROM dna_drops WHERE slug = ?').get(req.params.slug);
+  if (!drop) return res.status(404).json({ error: 'Drop not found' });
+  drop.songs = drop.song_slugs.split(',').map(slug => {
+    const song = db.prepare('SELECT * FROM songs WHERE slug = ?').get(slug.trim());
+    return song || null;
+  }).filter(Boolean);
+  res.json(drop);
+});
+
+// Admin: create a drop
+app.post('/api/admin/drop', (req, res) => {
+  if (req.headers['x-admin-key'] !== ADMIN_KEY) return res.status(403).json({ error: 'Forbidden' });
+  const { slug, title, description, song_slugs } = req.body;
+  if (!slug || !title || !song_slugs) return res.status(400).json({ error: 'Missing fields' });
+  try {
+    db.prepare('INSERT OR REPLACE INTO dna_drops (slug, title, description, song_slugs) VALUES (?, ?, ?, ?)').run(slug, title, description || '', song_slugs);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // --- Guide Articles (server-rendered for SEO) ---
 
 db.exec(`
