@@ -965,6 +965,194 @@ app.get('/api/credits', (req, res) => {
   res.json({ free_used_today: row.free_used_today, credits: row.credits, free_limit: 3 });
 });
 
+// --- Image Generation Helpers (Fal + DALL-E) ---
+const FAL_KEY = process.env.FAL_KEY || '';
+
+async function generateImageFal(prompt, count = 1) {
+  if (!FAL_KEY) return null;
+  try {
+    const res = await fetch('https://fal.run/fal-ai/flux/schnell', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Key ${FAL_KEY}` },
+      body: JSON.stringify({
+        prompt,
+        num_images: count,
+        image_size: 'square_hd',
+        num_inference_steps: 4,
+        enable_safety_checker: true
+      })
+    });
+    const data = await res.json();
+    if (data.images && data.images.length > 0) {
+      return data.images.map(i => i.url);
+    }
+    return null;
+  } catch (e) {
+    console.error('Fal error:', e.message);
+    return null;
+  }
+}
+
+async function generateImageDALLE(prompt) {
+  if (!OPENAI_KEY) return null;
+  try {
+    const res = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_KEY}` },
+      body: JSON.stringify({
+        model: 'dall-e-3',
+        prompt,
+        size: '1024x1024',
+        quality: 'standard',
+        n: 1
+      })
+    });
+    const data = await res.json();
+    return data.data?.[0]?.url || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// --- Lyric Tattoo Design Studio ---
+
+app.post('/api/tattoo/generate', async (req, res) => {
+  const { lyric, style, band, adornment } = req.body;
+  if (!lyric || lyric.length < 2) return res.status(400).json({ error: 'Give us a lyric' });
+  if (lyric.length > 200) return res.status(400).json({ error: 'Keep it under 200 characters' });
+
+  if (!moderateContent(lyric)) return res.status(400).json({ error: 'Content blocked' });
+
+  const token = req.headers['x-user-token'] || ('anon-' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'ip'));
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const credit = consumeCredit(token, ip, 3); // 3 free per day
+  if (!credit.ok) return res.status(402).json({ error: credit.error, ...credit });
+
+  const styleMap = {
+    minimalist: 'minimalist single-line black ink tattoo design, ultra-clean, simple elegant script',
+    script: 'flowing cursive script tattoo design, black ink on white background, elegant handwritten',
+    gothic: 'bold gothic blackletter tattoo design, dark heavy ink, medieval typography',
+    watercolor: 'watercolor tattoo design with soft color splashes, artistic, dreamy',
+    geometric: 'geometric line-art tattoo design, clean angular lines, minimalist sacred geometry',
+    handdrawn: 'hand-drawn sketch tattoo design, slightly rough organic feel, pencil-like texture',
+    typewriter: 'typewriter serif typography tattoo design, classic literary feel, black ink'
+  };
+
+  const adornmentMap = {
+    flower: 'with a single small delicate wildflower',
+    bird: 'with a small bird silhouette',
+    staff: 'with a tiny music staff line',
+    heart: 'with a small minimalist heart',
+    star: 'with a small star',
+    none: ''
+  };
+
+  const stylePrompt = styleMap[style] || styleMap.minimalist;
+  const adornmentPrompt = adornmentMap[adornment] || '';
+
+  const prompt = `${stylePrompt}, the text reads "${lyric}"${adornmentPrompt ? ', ' + adornmentPrompt : ''}, clean white background, high quality tattoo flash art, no color unless style requires it, centered composition`;
+
+  // Generate 3 variations via Fal (fast, cheap) — fall back to DALL-E if needed
+  let images = await generateImageFal(prompt, 3);
+  if (!images || images.length === 0) {
+    const dalleImg = await generateImageDALLE(prompt);
+    if (dalleImg) images = [dalleImg];
+  }
+
+  if (!images || images.length === 0) return res.status(503).json({ error: 'Image generation unavailable' });
+
+  // Save to database for potential gallery + watermarking
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS tattoo_designs (
+      id TEXT PRIMARY KEY,
+      token TEXT DEFAULT '',
+      lyric TEXT NOT NULL,
+      style TEXT DEFAULT '',
+      band TEXT DEFAULT '',
+      adornment TEXT DEFAULT '',
+      image_urls TEXT NOT NULL,
+      unlocked INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );`);
+  } catch (e) {}
+
+  const designId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  db.prepare('INSERT INTO tattoo_designs (id, token, lyric, style, band, adornment, image_urls) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(designId, token, lyric.slice(0, 200), style || '', band || '', adornment || '', JSON.stringify(images));
+
+  res.json({
+    id: designId,
+    images,
+    lyric,
+    style,
+    band,
+    adornment,
+    remaining_free: credit.remaining_free,
+    paid_credits: credit.paid_credits,
+    watermark_level: 'preview' // Unlocked to clean when they pay $3
+  });
+});
+
+// --- Concert Memory Stub ---
+
+app.post('/api/stub/generate', async (req, res) => {
+  const { band, year, city, fan_name, memory } = req.body;
+  if (!band || !year) return res.status(400).json({ error: 'Band and year required' });
+  if ((band + (city || '') + (memory || '')).length > 600) return res.status(400).json({ error: 'Keep it concise' });
+
+  if (memory && !moderateContent(memory)) return res.status(400).json({ error: 'Content blocked' });
+
+  const token = req.headers['x-user-token'] || ('anon-' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'ip'));
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const credit = consumeCredit(token, ip, 2); // 2 free stubs per day
+  if (!credit.ok) return res.status(402).json({ error: credit.error, ...credit });
+
+  // Generate 4 variations in different aesthetic styles
+  const prompts = [
+    `vintage concert ticket stub design, aged cream paper with black ink print, "${band}" in bold typography, date "${year}"${city ? ', venue: ' + city : ''}, realistic weathered texture, detailed perforation edge, centered composition`,
+    `retro 1970s concert ticket stub, colorful rainbow gradient printing, "${band}" in bold psychedelic font, date "${year}"${city ? ', venue: ' + city : ''}, slightly faded, authentic feel, detailed`,
+    `modern minimalist black concert ticket design, "${band}" in clean sans-serif, date "${year}"${city ? ', venue: ' + city : ''}, elegant dark typography, premium feel`,
+    `worn leather concert ticket stub texture, "${band}" embossed feel, date "${year}"${city ? ', venue: ' + city : ''}, rich warm tones, vintage memorabilia style`
+  ];
+
+  const imagePromises = prompts.map(p => generateImageFal(p, 1));
+  const results = await Promise.all(imagePromises);
+  const images = results.map(r => r && r[0]).filter(Boolean);
+
+  if (images.length === 0) return res.status(503).json({ error: 'Image generation unavailable' });
+
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS concert_stubs (
+      id TEXT PRIMARY KEY,
+      token TEXT DEFAULT '',
+      band TEXT NOT NULL,
+      year TEXT DEFAULT '',
+      city TEXT DEFAULT '',
+      fan_name TEXT DEFAULT '',
+      memory TEXT DEFAULT '',
+      image_urls TEXT NOT NULL,
+      unlocked INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );`);
+  } catch (e) {}
+
+  const stubId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  db.prepare('INSERT INTO concert_stubs (id, token, band, year, city, fan_name, memory, image_urls) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(stubId, token, band.slice(0, 100), year.toString().slice(0, 10), (city || '').slice(0, 100), (fan_name || '').slice(0, 100), (memory || '').slice(0, 500), JSON.stringify(images));
+
+  res.json({
+    id: stubId,
+    images,
+    band,
+    year,
+    city,
+    fan_name,
+    memory,
+    remaining_free: credit.remaining_free,
+    paid_credits: credit.paid_credits
+  });
+});
+
 // --- Poem Generator (fan tribute poetry, not fake songs) ---
 
 app.post('/api/poem/generate', async (req, res) => {
@@ -1887,6 +2075,8 @@ function sidebarHTML() {
       <a href="/poem" class="sidebar-link"><span class="sidebar-icon">&#9997;</span> A Poem For You</a>
       <a href="/timeline" class="sidebar-link"><span class="sidebar-icon">&#9202;</span> Your Life in Music</a>
       <a href="/wordle" class="sidebar-link"><span class="sidebar-icon">&#9634;</span> Daily Song Wordle</a>
+      <a href="/tattoo" class="sidebar-link"><span class="sidebar-icon">&#9830;</span> Tattoo Studio</a>
+      <a href="/stub" class="sidebar-link"><span class="sidebar-icon">&#9834;</span> Concert Stub</a>
       <a href="/check" class="sidebar-link"><span class="sidebar-icon">&#10003;</span> Check a Song</a>
       <a href="/wall" class="sidebar-link"><span class="sidebar-icon">&#9829;</span> The Wall</a>
       <a href="/battle" class="sidebar-link"><span class="sidebar-icon">&#9876;</span> Song Battle</a>

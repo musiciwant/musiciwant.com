@@ -112,6 +112,8 @@ function route() {
   else if (p.startsWith('/poem/')) renderPoemById(p.replace('/poem/', ''));
   else if (p === '/timeline') renderTimeline();
   else if (p === '/wordle') renderWordle();
+  else if (p === '/tattoo') renderTattoo();
+  else if (p === '/stub') renderStub();
   else if (p.startsWith('/check/')) renderSong(p.replace('/check/', ''));
   else if (p.startsWith('/artist/')) renderArtist(p.replace('/artist/', ''));
   else if (p.startsWith('/song/')) renderSong(p.replace('/song/', ''));
@@ -2427,6 +2429,211 @@ function renderGuessRow(guess, target) {
     cells.push(`<div style="display:inline-flex;gap:0.25rem;margin:0 0.5rem 0.5rem">${wordCells.join('')}</div>`);
   }
   return `<div style="margin-bottom:0.5rem">${cells.join('')}</div>`;
+}
+
+// --- Lyric Tattoo Design Studio ---
+async function renderTattoo() {
+  document.querySelector('.sidebar')?.setAttribute('style', '');
+  app.innerHTML = `<div style="max-width:640px;margin:0 auto">
+    <h1>Lyric Tattoo Studio</h1>
+    <p style="color:var(--text-muted);margin-bottom:2rem">Type a lyric. Pick a style. Get a design you can actually take to a tattoo artist.</p>
+
+    <div style="display:flex;flex-direction:column;gap:1rem;margin-bottom:2rem">
+      <div>
+        <label style="display:block;color:var(--text-muted);font-size:0.85rem;margin-bottom:0.4rem">The lyric</label>
+        <textarea id="tt-lyric" placeholder="Type the words you want inked" maxlength="200" rows="2" class="filter-input" style="width:100%;padding:0.85rem 1rem;font-size:1rem;resize:vertical"></textarea>
+      </div>
+      <div>
+        <label style="display:block;color:var(--text-muted);font-size:0.85rem;margin-bottom:0.4rem">Band (optional — for your reference)</label>
+        <input type="text" id="tt-band" placeholder="Pearl Jam, Taylor Swift..." maxlength="100" class="filter-input" style="width:100%;padding:0.85rem 1rem;font-size:1rem">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+        <div>
+          <label style="display:block;color:var(--text-muted);font-size:0.85rem;margin-bottom:0.4rem">Style</label>
+          <select id="tt-style" class="filter-input" style="width:100%;padding:0.85rem 1rem;font-size:1rem">
+            <option value="minimalist">Minimalist</option>
+            <option value="script">Flowing script</option>
+            <option value="gothic">Gothic blackletter</option>
+            <option value="watercolor">Watercolor</option>
+            <option value="geometric">Geometric line-art</option>
+            <option value="handdrawn">Hand-drawn sketch</option>
+            <option value="typewriter">Typewriter serif</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;color:var(--text-muted);font-size:0.85rem;margin-bottom:0.4rem">Adornment</label>
+          <select id="tt-adornment" class="filter-input" style="width:100%;padding:0.85rem 1rem;font-size:1rem">
+            <option value="none">None — just the words</option>
+            <option value="flower">Small wildflower</option>
+            <option value="bird">Small bird silhouette</option>
+            <option value="staff">Tiny music staff</option>
+            <option value="heart">Small heart</option>
+            <option value="star">Small star</option>
+          </select>
+        </div>
+      </div>
+      <button id="tt-generate" class="cta-primary" style="padding:1rem">Generate 3 Designs</button>
+    </div>
+
+    <p style="color:var(--text-dim);font-size:0.75rem;text-align:center;margin-bottom:1rem">3 free designs per day. Additional: 10 credits for $1. Clean high-res download: $3 per design.</p>
+    <div id="tt-status" style="color:var(--text-muted);font-size:0.8rem;text-align:center;margin-bottom:1rem"></div>
+
+    <div id="tt-result"></div>
+  </div>`;
+
+  try {
+    const credits = await fetch('/api/credits', { headers: { 'X-User-Token': getUserToken() } }).then(r => r.json());
+    const remaining = Math.max(0, 3 - credits.free_used_today);
+    document.getElementById('tt-status').textContent = `${remaining} free design${remaining !== 1 ? 's' : ''} left today${credits.credits > 0 ? ' · ' + credits.credits + ' paid credits' : ''}`;
+  } catch (e) {}
+
+  document.getElementById('tt-generate').addEventListener('click', async () => {
+    const lyric = document.getElementById('tt-lyric').value.trim();
+    const band = document.getElementById('tt-band').value.trim();
+    const style = document.getElementById('tt-style').value;
+    const adornment = document.getElementById('tt-adornment').value;
+
+    if (!lyric) { showToast('Enter a lyric'); return; }
+
+    const btn = document.getElementById('tt-generate');
+    btn.disabled = true; btn.textContent = 'Generating...';
+    document.getElementById('tt-result').innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:2rem">Designing your tattoo... (takes ~15 seconds)</p>';
+
+    try {
+      const res = await fetch('/api/tattoo/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-User-Token': getUserToken() },
+        body: JSON.stringify({ lyric, band, style, adornment })
+      });
+      const data = await res.json();
+      if (data.error) { showToast(data.error); btn.disabled = false; btn.textContent = 'Generate 3 Designs'; document.getElementById('tt-result').innerHTML = ''; return; }
+
+      const imgHTML = data.images.map((url, i) => `
+        <div style="background:var(--bg-card);border-radius:12px;overflow:hidden;position:relative">
+          <img src="${url}" alt="Tattoo design ${i+1}" style="width:100%;display:block">
+          <div style="position:absolute;bottom:0;left:0;right:0;padding:0.5rem;background:rgba(0,0,0,0.6);color:#fff;text-align:center;font-size:0.7rem">PREVIEW · musiciwant.com</div>
+        </div>
+      `).join('');
+
+      document.getElementById('tt-result').innerHTML = `
+        <h2 style="text-align:center;margin-bottom:1rem">Your 3 Variations</h2>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin-bottom:1.5rem">${imgHTML}</div>
+        <div style="text-align:center;padding:1.5rem;background:rgba(212,149,106,0.06);border-radius:var(--radius);border:1px solid rgba(212,149,106,0.15)">
+          <p style="margin-bottom:0.75rem">These previews are watermarked. To download clean, high-resolution versions you can take to a tattoo artist:</p>
+          <button class="cta-primary" style="font-size:1rem">Unlock All 3 — $3</button>
+          <p style="color:var(--text-dim);font-size:0.75rem;margin-top:0.75rem">${data.remaining_free} free designs left today</p>
+        </div>
+        <div style="text-align:center;margin-top:1rem">
+          <button id="tt-again" class="cta-secondary">Generate Another</button>
+        </div>`;
+
+      document.getElementById('tt-again')?.addEventListener('click', () => { btn.disabled = false; btn.textContent = 'Generate 3 Designs'; });
+      btn.disabled = false; btn.textContent = 'Generate 3 More';
+    } catch (e) {
+      showToast('Generation failed. Try again.');
+      btn.disabled = false; btn.textContent = 'Generate 3 Designs';
+      document.getElementById('tt-result').innerHTML = '';
+    }
+  });
+}
+
+// --- Concert Memory Stub ---
+async function renderStub() {
+  document.querySelector('.sidebar')?.setAttribute('style', '');
+  app.innerHTML = `<div style="max-width:640px;margin:0 auto">
+    <h1>Concert Memory Stub</h1>
+    <p style="color:var(--text-muted);margin-bottom:2rem">A show that mattered. Turn it into a keepsake. Four variations, pick your favorite.</p>
+
+    <div style="display:flex;flex-direction:column;gap:1rem;margin-bottom:2rem">
+      <div>
+        <label style="display:block;color:var(--text-muted);font-size:0.85rem;margin-bottom:0.4rem">Band or artist</label>
+        <input type="text" id="st-band" placeholder="Pearl Jam" maxlength="100" class="filter-input" style="width:100%;padding:0.85rem 1rem;font-size:1rem">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+        <div>
+          <label style="display:block;color:var(--text-muted);font-size:0.85rem;margin-bottom:0.4rem">Year (or approximate)</label>
+          <input type="text" id="st-year" placeholder="2008 or Summer 2008" maxlength="20" class="filter-input" style="width:100%;padding:0.85rem 1rem;font-size:1rem">
+        </div>
+        <div>
+          <label style="display:block;color:var(--text-muted);font-size:0.85rem;margin-bottom:0.4rem">City or venue (optional)</label>
+          <input type="text" id="st-city" placeholder="Boston, MA" maxlength="100" class="filter-input" style="width:100%;padding:0.85rem 1rem;font-size:1rem">
+        </div>
+      </div>
+      <div>
+        <label style="display:block;color:var(--text-muted);font-size:0.85rem;margin-bottom:0.4rem">Your name (for the stub)</label>
+        <input type="text" id="st-name" placeholder="Your first name" maxlength="100" class="filter-input" style="width:100%;padding:0.85rem 1rem;font-size:1rem">
+      </div>
+      <div>
+        <label style="display:block;color:var(--text-muted);font-size:0.85rem;margin-bottom:0.4rem">One memory from that night (optional)</label>
+        <textarea id="st-memory" placeholder="They played 'Black' for the encore and everyone around me was crying" maxlength="500" rows="2" class="filter-input" style="width:100%;padding:0.85rem 1rem;font-size:1rem;resize:vertical"></textarea>
+      </div>
+      <button id="st-generate" class="cta-primary" style="padding:1rem">Generate 4 Stub Variations</button>
+    </div>
+
+    <p style="color:var(--text-dim);font-size:0.75rem;text-align:center;margin-bottom:1rem">2 free stubs per day. $1 for clean download.</p>
+    <div id="st-status" style="color:var(--text-muted);font-size:0.8rem;text-align:center;margin-bottom:1rem"></div>
+    <div id="st-result"></div>
+  </div>`;
+
+  try {
+    const credits = await fetch('/api/credits', { headers: { 'X-User-Token': getUserToken() } }).then(r => r.json());
+    const remaining = Math.max(0, 2 - credits.free_used_today);
+    document.getElementById('st-status').textContent = `${remaining} free stub${remaining !== 1 ? 's' : ''} left today`;
+  } catch (e) {}
+
+  document.getElementById('st-generate').addEventListener('click', async () => {
+    const band = document.getElementById('st-band').value.trim();
+    const year = document.getElementById('st-year').value.trim();
+    const city = document.getElementById('st-city').value.trim();
+    const fan_name = document.getElementById('st-name').value.trim();
+    const memory = document.getElementById('st-memory').value.trim();
+
+    if (!band || !year) { showToast('Band and year required'); return; }
+
+    const btn = document.getElementById('st-generate');
+    btn.disabled = true; btn.textContent = 'Generating...';
+    document.getElementById('st-result').innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:2rem">Designing your keepsake... (takes ~20 seconds)</p>';
+
+    try {
+      const res = await fetch('/api/stub/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-User-Token': getUserToken() },
+        body: JSON.stringify({ band, year, city, fan_name, memory })
+      });
+      const data = await res.json();
+      if (data.error) { showToast(data.error); btn.disabled = false; btn.textContent = 'Generate 4 Stub Variations'; document.getElementById('st-result').innerHTML = ''; return; }
+
+      const styles = ['Vintage', 'Retro 70s', 'Modern Minimalist', 'Weathered Leather'];
+      const imgHTML = data.images.map((url, i) => `
+        <div style="background:var(--bg-card);border-radius:12px;overflow:hidden;position:relative">
+          <img src="${url}" alt="Stub variation ${i+1}" style="width:100%;display:block">
+          <div style="padding:0.75rem;text-align:center">
+            <div style="font-size:0.85rem;font-weight:600;color:var(--accent)">${styles[i] || 'Variation ' + (i+1)}</div>
+          </div>
+        </div>
+      `).join('');
+
+      document.getElementById('st-result').innerHTML = `
+        <h2 style="text-align:center;margin-bottom:1rem">Your 4 Variations</h2>
+        ${memory ? `<p style="text-align:center;font-style:italic;color:var(--text-muted);margin-bottom:1rem">"${memory}"</p>` : ''}
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin-bottom:1.5rem">${imgHTML}</div>
+        <div style="text-align:center;padding:1.5rem;background:rgba(212,149,106,0.06);border-radius:var(--radius);border:1px solid rgba(212,149,106,0.15)">
+          <p style="margin-bottom:0.75rem">Unlock a clean high-res download of your favorite:</p>
+          <button class="cta-primary" style="font-size:1rem">Unlock — $1</button>
+          <p style="color:var(--text-dim);font-size:0.75rem;margin-top:0.75rem">${data.remaining_free} free stubs left today</p>
+        </div>
+        <div style="text-align:center;margin-top:1rem">
+          <button id="st-again" class="cta-secondary">Generate Another</button>
+        </div>`;
+
+      document.getElementById('st-again')?.addEventListener('click', () => { btn.disabled = false; btn.textContent = 'Generate 4 Variations'; });
+      btn.disabled = false; btn.textContent = 'Generate 4 More';
+    } catch (e) {
+      showToast('Generation failed. Try again.');
+      btn.disabled = false; btn.textContent = 'Generate 4 Variations';
+      document.getElementById('st-result').innerHTML = '';
+    }
+  });
 }
 
 // --- Card button binding ---
